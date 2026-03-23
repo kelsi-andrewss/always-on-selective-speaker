@@ -22,6 +22,8 @@ androidxTestJunit = "1.2.1"
 activityCompose = "1.9.1"
 lifecycleRuntime = "2.8.4"
 coreKtx = "1.13.1"
+firebaseBom = "33.7.0"
+googleServices = "4.4.2"
 
 [libraries]
 # Kotlin & Coroutines
@@ -69,6 +71,11 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 # ML / ONNX
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
+# Firebase
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
+firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
+
 # AndroidX Core
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 
@@ -84,3 +91,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

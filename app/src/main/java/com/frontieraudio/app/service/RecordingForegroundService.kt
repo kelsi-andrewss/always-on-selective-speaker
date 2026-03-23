@@ -197,6 +197,7 @@ class RecordingForegroundService : Service() {
     private fun restartPipelineWithDevice(sampleRate: Int, audioSource: Int) {
         pipelineJob?.cancel()
         audioCaptureManager.recreateForDevice(sampleRate, audioSource)
+        vadProcessor.currentSampleRate = sampleRate
         startPipeline()
     }
 

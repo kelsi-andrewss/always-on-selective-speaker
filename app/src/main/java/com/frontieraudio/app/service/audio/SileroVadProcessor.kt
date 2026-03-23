@@ -27,6 +27,9 @@ class SileroVadProcessor @Inject constructor(
 
     private var state: FloatArray = FloatArray(STATE_SIZE)
 
+    @Volatile
+    var currentSampleRate: Int = AudioConfig.SAMPLE_RATE
+
     private val speechThreshold = 0.5f
     private val silenceDurationFrames = 10
 
@@ -48,12 +51,13 @@ class SileroVadProcessor @Inject constructor(
         val session = ortSession
             ?: throw IllegalStateException("SileroVadProcessor not initialized. Call init() first.")
 
-        val floatFrame = FloatArray(frame.size) { frame[it] / 32768f }
+        val resampled = AudioResampler.resample(frame, currentSampleRate, MODEL_SAMPLE_RATE)
+        val floatFrame = FloatArray(resampled.size) { resampled[it] / 32768f }
 
         val inputTensor = OnnxTensor.createTensor(
             ortEnvironment,
             FloatBuffer.wrap(floatFrame),
-            longArrayOf(1, frame.size.toLong()),
+            longArrayOf(1, resampled.size.toLong()),
         )
         val stateTensor = OnnxTensor.createTensor(
             ortEnvironment,
@@ -62,7 +66,7 @@ class SileroVadProcessor @Inject constructor(
         )
         val srTensor = OnnxTensor.createTensor(
             ortEnvironment,
-            longArrayOf(AudioConfig.SAMPLE_RATE.toLong()),
+            longArrayOf(MODEL_SAMPLE_RATE.toLong()),
         )
 
         val inputs = mapOf(
@@ -128,12 +132,13 @@ class SileroVadProcessor @Inject constructor(
                 pcmData[offset++] = (sample.toInt() shr 8 and 0xFF).toByte()
             }
         }
-        val durationMs = (totalSamples * 1000) / AudioConfig.SAMPLE_RATE
+        val rate = currentSampleRate
+        val durationMs = (totalSamples * 1000) / rate
         return AudioChunk(
             pcmData = pcmData,
             startTimestamp = startTimestamp,
             durationMs = durationMs,
-            sampleRate = AudioConfig.SAMPLE_RATE,
+            sampleRate = rate,
             isSpeakerVerified = false,
         )
     }
@@ -160,6 +165,7 @@ class SileroVadProcessor @Inject constructor(
     companion object {
         private const val TAG = "SileroVadProcessor"
         private const val MODEL_FILE = "silero_vad.onnx"
+        private const val MODEL_SAMPLE_RATE = 16_000
         private const val STATE_DIM = 128
         private const val STATE_SIZE = 2 * 1 * STATE_DIM
     }

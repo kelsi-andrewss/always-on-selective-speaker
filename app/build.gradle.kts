@@ -1,9 +1,13 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -19,8 +23,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "ASSEMBLY_AI_KEY", "\"${System.getenv("ASSEMBLY_AI_KEY") ?: ""}\"")
-        buildConfigField("String", "OPENAI_KEY", "\"${System.getenv("OPENAI_KEY") ?: ""}\"")
+        val localProps = Properties()
+        val localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) {
+            FileInputStream(localPropsFile).use { localProps.load(it) }
+        }
+        buildConfigField("String", "ASSEMBLY_AI_KEY", "\"${localProps.getProperty("assembly.ai.key", "")}\"")
+        buildConfigField("String", "OPENAI_KEY", "\"${localProps.getProperty("openai.key", "")}\"")
     }
 
     buildTypes {
@@ -89,6 +98,11 @@ dependencies {
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging.interceptor)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.auth)
 
     // Location
     implementation(libs.play.services.location)
