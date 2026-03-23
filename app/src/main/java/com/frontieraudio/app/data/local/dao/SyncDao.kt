@@ -30,4 +30,22 @@ interface SyncDao {
 
     @Query("SELECT COUNT(*) FROM audio_chunks WHERE sync_status = 'PENDING' OR sync_status = 'FAILED'")
     fun getPendingCount(): Flow<Int>
+
+    @Query("SELECT * FROM transcripts ORDER BY created_at DESC")
+    fun getTranscripts(): Flow<List<TranscriptEntity>>
+
+    @Query("SELECT * FROM transcripts WHERE transcript_id = :transcriptId")
+    suspend fun getTranscriptById(transcriptId: String): TranscriptEntity?
+
+    @Query(
+        """
+        SELECT t.* FROM transcripts t
+        INNER JOIN audio_chunks a ON t.chunk_id = a.chunk_id
+        WHERE t.corrected_text IS NULL AND a.sync_status = 'TRANSCRIBED'
+        """
+    )
+    suspend fun getTranscriptsNeedingCorrection(): List<TranscriptEntity>
+
+    @Query("UPDATE transcripts SET corrected_text = :correctedText WHERE transcript_id = :transcriptId")
+    suspend fun updateCorrectedText(transcriptId: String, correctedText: String)
 }

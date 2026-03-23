@@ -18,6 +18,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "ASSEMBLY_AI_KEY", "\"${System.getenv("ASSEMBLY_AI_KEY") ?: ""}\"")
+        buildConfigField("String", "OPENAI_KEY", "\"${System.getenv("OPENAI_KEY") ?: ""}\"")
     }
 
     buildTypes {

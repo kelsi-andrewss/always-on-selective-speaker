@@ -28,6 +28,7 @@ class PostProcessTranscriptUseCase(
 
         syncDao.updateCorrectedText(transcriptId, corrected)
         Log.d(TAG, "Stored corrected text for transcript $transcriptId")
+        Unit
     }.onFailure { e ->
         Log.e(TAG, "PostProcessTranscriptUseCase failed for $transcriptId", e)
     }

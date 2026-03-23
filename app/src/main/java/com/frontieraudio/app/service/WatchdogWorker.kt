@@ -1,7 +1,6 @@
 package com.frontieraudio.app.service
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -20,14 +19,11 @@ class WatchdogWorker(
         Log.d(TAG, "Watchdog check — service running: $running")
 
         if (!running) {
-            Log.w(TAG, "Service not running — launching restart activity")
+            Log.w(TAG, "Service not running — restarting directly")
             try {
-                val intent = Intent(applicationContext, RestartServiceActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                applicationContext.startActivity(intent)
+                RecordingForegroundService.start(applicationContext)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch restart activity", e)
+                Log.e(TAG, "Failed to restart recording service", e)
             }
         }
 
