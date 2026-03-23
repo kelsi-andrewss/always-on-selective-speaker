@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontier Audio — Transcript Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen">
+        <div class="login-card">
+            <h1>Frontier Audio</h1>
+            <p class="subtitle">Supervisor Dashboard</p>
+            <form id="login-form">
+                <input type="email" id="email" placeholder="Email" required autocomplete="email">
+                <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+                <button type="submit" id="login-btn">Sign In</button>
+                <p id="login-error" class="error" hidden></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dashboard Screen -->
+    <div id="dashboard-screen" class="screen" hidden>
+        <header>
+            <div class="header-left">
+                <h1>Transcript Dashboard</h1>
+                <span id="auto-refresh-indicator" class="refresh-badge">Auto-refresh: 30s</span>
+            </div>
+            <div class="header-right">
+                <span id="user-email"></span>
+                <button id="logout-btn">Sign Out</button>
+            </div>
+        </header>
+
+        <div class="filters">
+            <label>
+                From
+                <input type="date" id="filter-start">
+            </label>
+            <label>
+                To
+                <input type="date" id="filter-end">
+            </label>
+            <button id="filter-btn">Filter</button>
+            <button id="clear-filter-btn" class="secondary">Clear</button>
+        </div>
+
+        <div id="transcript-list" class="transcript-list">
+            <p class="placeholder">Loading transcripts...</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

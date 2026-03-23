@@ -48,4 +48,13 @@ interface SyncDao {
 
     @Query("UPDATE transcripts SET corrected_text = :correctedText WHERE transcript_id = :transcriptId")
     suspend fun updateCorrectedText(transcriptId: String, correctedText: String)
+
+    @Query("SELECT * FROM transcripts WHERE synced_at IS NULL ORDER BY created_at ASC")
+    suspend fun getUnsyncedTranscripts(): List<TranscriptEntity>
+
+    @Query("SELECT * FROM audio_chunks WHERE chunk_id = :chunkId")
+    suspend fun getChunkById(chunkId: String): AudioChunkEntity?
+
+    @Query("UPDATE transcripts SET synced_at = :syncedAt WHERE transcript_id = :transcriptId")
+    suspend fun updateSyncedAt(transcriptId: String, syncedAt: Long)
 }
