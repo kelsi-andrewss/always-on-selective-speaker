@@ -1,0 +1,95 @@
+{
+  "slug": "android-selective-speaker",
+  "skill": "clarify",
+  "scope": {
+    "files": 25,
+    "stories": 10,
+    "complexity": "large"
+  },
+  "route_hint": "standard",
+  "prev": [],
+  "data": {
+    "topic": "Always-on Android selective speaker transcription app",
+    "input_summary": "Production-grade Android app for frontline workers that runs continuously, performs on-device speaker verification to filter only the enrolled user's speech, uploads verified segments to cloud STT for transcription with timestamps and GPS, supports Bluetooth mic switching, and includes a simple web dashboard for transcript review.",
+    "decisions": [
+      {
+        "area": "Speaker verification architecture",
+        "choice": "On-device VAD + local speaker verification. Lightweight VAD detects speech activity, local embedding model verifies against enrolled user profile. Only verified audio segments leave the device.",
+        "reasoning": "Best balance of privacy (no third-party audio sent to cloud), battery efficiency (VAD gates CPU-intensive verification), and legal safety (two-party consent compliance). Acceptable tradeoff: may miss first ~500ms of utterance during model wake.",
+        "source": "user"
+      },
+      {
+        "area": "Transcription upload strategy",
+        "choice": "Speech-activity-driven chunked uploads with offline Room DB persistence queue. Chunks are verified speech segments (not fixed time windows), uploaded when connectivity is available.",
+        "reasoning": "Since on-device VAD + verification filters silence and non-user speech, chunks are naturally speech-driven — no wasted empty data. Offline queue with Room DB handles field environments with intermittent or no connectivity. Retry on reconnect.",
+        "source": "user"
+      },
+      {
+        "area": "Backend scope",
+        "choice": "Android app + simple web dashboard for transcript review.",
+        "reasoning": "Makes the demo more compelling for Frontier Audio. Supervisors can review transcripts in a browser. Adds backend component but keeps scope reasonable.",
+        "source": "user"
+      },
+      {
+        "area": "Cloud STT provider",
+        "choice": "Evaluate during research: Deepgram Nova-2, AssemblyAI, Google Speech-to-Text v2 (Chirp), OpenAI Whisper API. Pick based on WER benchmarks for noisy environments, streaming vs batch support, timestamp granularity, and pricing.",
+        "reasoning": "No existing relationship with any provider. Research phase should benchmark options against field environment audio characteristics before committing.",
+        "source": "user"
+      },
+      {
+        "area": "Offline resilience",
+        "choice": "Full offline persistence — audio segments and transcript data stored in Room DB, synced when connectivity returns. GPS data cached alongside.",
+        "reasoning": "Implied by field environment use case. Extreme environments often have intermittent connectivity. Data loss is unacceptable for legal/operational records.",
+        "source": "gemini"
+      },
+      {
+        "area": "Noise handling",
+        "choice": "Audio preprocessing pipeline with environmental noise cancellation before speaker verification and STT.",
+        "reasoning": "Extreme field environments (wind, machinery, radio chatter) will degrade both speaker verification accuracy and STT WER without preprocessing. Gemini flagged this as missing requirement.",
+        "source": "gemini"
+      }
+    ],
+    "constraints": [
+      {
+        "type": "stack",
+        "value": "Kotlin for Android application",
+        "source": "requirements-file"
+      },
+      {
+        "type": "stack",
+        "value": "Android 15 preferred, backward compatibility needed",
+        "source": "requirements-file"
+      },
+      {
+        "type": "requirement",
+        "value": "App must survive sleep, Doze, charger idle, low battery — only stops on full power-down",
+        "source": "requirements-file"
+      },
+      {
+        "type": "requirement",
+        "value": "One-time voice enrollment at first app startup",
+        "source": "requirements-file"
+      },
+      {
+        "type": "requirement",
+        "value": "GPS tagging on all transcription segments — location services always on",
+        "source": "requirements-file"
+      },
+      {
+        "type": "requirement",
+        "value": "Bluetooth mic auto-switching with seamless fallback to built-in mic",
+        "source": "requirements-file"
+      },
+      {
+        "type": "requirement",
+        "value": "LLM post-processing available for transcription error correction",
+        "source": "requirements-file"
+      },
+      {
+        "type": "scope",
+        "value": "Production-grade demo for Frontier Audio hiring partner submission",
+        "source": "user"
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "slug": "android-selective-speaker",
+  "skill": "scope",
+  "scope": {
+    "files": 20,
+    "stories": 8,
+    "complexity": "large"
+  },
+  "route_hint": "research",
+  "prev": [],
+  "data": {
+    "topic": "Always-on Android selective speaker transcription app with cloud transcription, speaker verification, Bluetooth mic support, GPS tagging, and battery-efficient always-on foreground service",
+    "what": "Always-on Android app that continuously records audio, performs speaker verification against enrolled user voice, and sends only their speech for cloud transcription with timestamps and GPS tagging",
+    "audience": "Frontline workers — managers and supervisors in field environments who need automatic records of technical conversations",
+    "platform": "Android (15 preferred, not required)",
+    "in_scope": [
+      "Always-on foreground service surviving Doze, sleep, low battery",
+      "Speaker voice enrollment at first launch",
+      "On-device speaker verification filtering only enrolled user speech",
+      "Cloud speech-to-text with low WER and timestamps",
+      "LLM post-processing to fix transcription mistakes",
+      "GPS tagging on transcription segments",
+      "Bluetooth microphone auto-switching with fallback",
+      "Resilience to other apps and system battery optimization"
+    ],
+    "out_of_scope": [
+      "iOS support",
+      "Multi-user enrollment",
+      "Video recording",
+      "Real-time collaboration or communication",
+      "On-device-only transcription (cloud is primary path)"
+    ],
+    "stack_detected": [],
+    "problem": "Frontline workers have hundreds of technical conversations daily in extreme environments and cannot remember all details discussed. They need a frictionless, automatic record of everything they said.",
+    "why": "Legal, operational, and safety requirements for field work documentation. Without this, critical technical details are lost, creating liability and operational risk.",
+    "end_goal": "Production-grade demo Android app submitted to Frontier Audio. Kotlin-based, always-on, with working speaker verification, cloud transcription, GPS tagging, and Bluetooth support.",
+    "needs_research": true,
+    "complexity_reasoning": "Multiple unfamiliar specialized domains (speaker verification/voice biometrics, Android always-on audio services, cloud STT API evaluation, Bluetooth audio routing) with no existing codebase patterns to reference."
+  }
+}

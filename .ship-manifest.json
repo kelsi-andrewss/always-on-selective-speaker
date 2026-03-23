@@ -1,0 +1,75 @@
+{
+  "slug": "always-on-selective-speaker",
+  "scope": {
+    "files": 30,
+    "stories": 9,
+    "complexity": "large"
+  },
+  "route_hint": "standard",
+  "prev": "presearch/android-selective-speaker.md",
+  "skill": "plan-stories",
+  "data": {
+    "epics": [
+      {
+        "epic_id": "epic-232",
+        "dev_branch": "dev/always-on-selective-speaker-android-app",
+        "stories": [
+          {
+            "id": "story-1102",
+            "title": "Bootstrap — Gradle KTS, dependencies, domain models, Hilt modules",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1102.md"
+          },
+          {
+            "id": "story-1103",
+            "title": "Permissions & OEM Onboarding",
+            "agent": "quick-fixer",
+            "detail_file": "/tmp/gemini/story-1103.md"
+          },
+          {
+            "id": "story-1104",
+            "title": "Audio Pipeline & VAD",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1104.md"
+          },
+          {
+            "id": "story-1105",
+            "title": "Speaker Enrollment & Verification",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1105.md"
+          },
+          {
+            "id": "story-1106",
+            "title": "Foreground Service",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1106.md"
+          },
+          {
+            "id": "story-1107",
+            "title": "Local Persistence & Offline Queue",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1107.md"
+          },
+          {
+            "id": "story-1108",
+            "title": "Cloud STT Integration",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1108.md"
+          },
+          {
+            "id": "story-1109",
+            "title": "GPS Tracking",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1109.md"
+          },
+          {
+            "id": "story-1110",
+            "title": "LLM Post-Processing",
+            "agent": "architect",
+            "detail_file": "/tmp/gemini/story-1110.md"
+          }
+        ]
+      }
+    ]
+  }
+}

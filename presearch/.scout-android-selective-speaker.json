@@ -1,0 +1,338 @@
+{
+  "slug": "android-selective-speaker",
+  "scope": {
+    "files": 25,
+    "stories": 10,
+    "complexity": "large"
+  },
+  "route_hint": "standard",
+  "prev": [
+    "presearch/.research-android-selective-speaker.json"
+  ],
+  "skill": "scout",
+  "data": {
+    "topic": "Always-on Android selective speaker transcription app",
+    "findings": [
+      {
+        "category": "architecture",
+        "summary": "Greenfield Kotlin Android project -- no existing code, build files, or established patterns",
+        "details": "The project directory contains only planning artifacts (.scope, .clarify, .research JSON files), a requirements screenshot, and supplementary research JSONs. No Kotlin source, Gradle build files, AndroidManifest, or test infrastructure exists. All architectural decisions are forward-looking -- there are no codebase conventions to conform to.",
+        "files": [
+          ".scope-android-selective-speaker.json",
+          ".clarify-android-selective-speaker.json",
+          "presearch/.research-android-selective-speaker.json",
+          "presearch/foreground-service-battery-governance.json"
+        ],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "Single foreground service with microphone|location type is the core runtime architecture",
+        "details": "Research confirms microphone FGS is timeout-exempt (Android 15 6-hour limit does not apply) and audio wake locks are Android Vitals-exempt. The service MUST combine microphone+location types via bitwise-OR in startForeground(). Critical constraint: must be started from a foreground Activity with user interaction -- no background start, no BOOT_COMPLETED, no CompanionDeviceManager bypass for microphone type. Architecture must ensure the service never dies once started.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "Audio pipeline: VAD -> speaker verification -> chunk queue -> cloud STT",
+        "details": "Clarify decision locks in: Silero VAD gates speech detection, sherpa-onnx ECAPA-TDNN performs on-device speaker verification against enrolled embeddings, verified segments are queued in Room DB, uploaded to cloud STT when connectivity is available. Only verified audio leaves the device. Research confirms this pipeline is viable but identifies gaps in inference latency benchmarks and minimum enrollment duration.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "constraint",
+        "summary": "Kotlin-only Android stack targeting API 35 (Android 15) with backward compatibility",
+        "details": "Clarify constraints specify Kotlin for Android. Scope specifies Android 15 preferred but not required. Bluetooth API modernization (setCommunicationDevice) requires API 31 minimum. LE Audio requires API 33+. Recommendation: minSdk 31 (Android 12) to use modern BT APIs, targetSdk 35.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "constraint",
+        "summary": "Battery optimization whitelist is a hard requirement for Doze survival",
+        "details": "Research confirms PARTIAL_WAKE_LOCK is ignored during Doze unless app is on battery optimization whitelist (STANDBY_BUCKET_EXEMPTED). Must request ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS with fallback to manual settings intent (ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) for Play Store safety. OEM killing (Samsung One UI 7 predictive kill, Xiaomi HyperOS autostart gate) requires onboarding UX, not code.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "constraint",
+        "summary": "Noise preprocessing CONTRADICTS clarify decision -- research says skip it entirely",
+        "details": "Clarify decision (source: gemini) says 'Audio preprocessing pipeline with environmental noise cancellation before speaker verification and STT.' Research from both Deepgram and independent sources says noise preprocessing drives WER UP 15% and should be skipped -- modern STT models are trained on noisy data. Only VAD trimming is endorsed. This is a direct conflict that must be resolved: research should win, noise preprocessing should be dropped.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "dependency",
+        "summary": "sherpa-onnx for on-device speaker verification with ECAPA-TDNN model",
+        "details": "Research identifies sherpa-onnx as the production-ready path for Android speaker verification. Provides speaker_embedding_extractor, speaker_embedding_manager, and cosine_similarity utilities. ECAPA-TDNN produces 192-dimensional embeddings with ~0.80% EER on VoxCeleb1. Available as Android AAR. PARTIAL: inference latency on ARM, minimum enrollment duration, and impact of 8-16kHz BT audio on EER are unresolved gaps.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "dependency",
+        "summary": "Silero VAD for speech activity detection gating",
+        "details": "Lightweight VAD model operating at 16kHz with low latency. Gates speaker verification to only run during detected speech, saving battery. Available for Android/Kotlin. Must handle sample rate conversion when Bluetooth SCO provides 8kHz audio.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "dependency",
+        "summary": "AssemblyAI Universal-3 Pro is the recommended cloud STT provider",
+        "details": "Research concludes AssemblyAI leads on noisy audio WER (9.97% vs Deepgram 14.12%, OpenAI 11.63%) at competitive pricing ($3.50/1K min). Word-level timestamps included free. Slam-1 offers $2.50/1K min with prompt-based customization. Clarify left STT choice open pending research -- this is the research recommendation.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "dependency",
+        "summary": "Room DB for offline persistence queue",
+        "details": "Clarify decision specifies Room DB for offline persistence of audio chunks, transcript data, and GPS coordinates. Retry on reconnect. This is standard Android architecture -- Room with WorkManager for background sync is well-established.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "Bluetooth audio routing requires defense-in-depth with sample rate-aware AudioRecord recreation",
+        "details": "Three supplementary research artifacts detail Bluetooth routing complexity. Key requirements: (1) setCommunicationDevice() with MODE_IN_COMMUNICATION pre-set (API 31+), (2) 500-1000ms stabilization delay after callback, (3) discard first ~500ms of audio frames, (4) destroy and recreate AudioRecord on BT disconnect (sample rate changes from 8-16kHz SCO to 48kHz built-in), (5) fallback from VOICE_COMMUNICATION to VOICE_RECOGNITION if silence detected, (6) retry loop for device appearing in getAvailableCommunicationDevices(). LE Audio (32-48kHz) is far better for speaker verification than SCO (8-16kHz).",
+        "files": [
+          "../bluetooth-audio-routing-deep.json",
+          "../research/bluetooth-audio-routing-android.json"
+        ],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "GPS requires HIGH_ACCURACY for 10m precision, with batching for battery efficiency",
+        "details": "Research corrects a common assumption: PRIORITY_BALANCED_POWER_ACCURACY provides ~100m accuracy (city block), not ~10m. PRIORITY_HIGH_ACCURACY with GPS hardware is needed for field use. Use setMaxUpdateDelayMillis() for batch delivery (compute every 10 min, deliver every 60 min) to reduce wake-ups. Must declare foregroundServiceType location alongside microphone.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "Web dashboard for transcript review adds a backend component",
+        "details": "Clarify decision includes a simple web dashboard for supervisors to review transcripts in a browser. This implies a backend API (likely lightweight -- Firebase, Supabase, or simple REST) and a web frontend. Increases scope beyond pure Android. Stack not yet decided.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "constraint",
+        "summary": "LLM post-processing required for transcription error correction",
+        "details": "Requirements specify LLM post-processing for STT error correction. Implementation options: (1) server-side with GPT-4o/Claude after STT returns, (2) client-side with on-device small LLM (unlikely given battery constraints), (3) AssemblyAI Slam-1 with domain prompting may reduce need. Not deeply researched yet.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "OEM-specific onboarding UX is required, not optional",
+        "details": "Samsung One UI 7 predictive kill (4+ hours), Xiaomi HyperOS autostart gate, and Android 13+ Task Manager stop are all documented threats to service survival. The app MUST include device-specific onboarding screens guiding users through: Samsung 'Never sleeping apps', Xiaomi 'Background Autostart' + Padlock, and general battery optimization whitelist. WorkManager 15-minute heartbeat watchdog as safety net.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "test",
+        "summary": "No test infrastructure exists -- must be established from scratch",
+        "details": "Greenfield project. Must establish: unit test framework (JUnit 5 + MockK for Kotlin), instrumented test framework (AndroidX Test), audio pipeline integration tests (mock AudioRecord, mock BT device), Room DB tests, network sync tests. Speaker verification accuracy tests need real audio samples.",
+        "files": [],
+        "source": "codebase"
+      },
+      {
+        "category": "architecture",
+        "summary": "Sibling Jarvis project exists with completed scout and ship artifacts -- potential pattern reference",
+        "details": "The frontieraudio parent directory contains a sibling 'jarvis' project (voice assistant) that has progressed through scope, clarify, research, scout, and ship phases. It has a git repo with plans/ and specs/ directories. While a different product, it shares the Frontier Audio hiring partner context and may have established patterns for project structure.",
+        "files": [
+          "../jarvis/presearch/.scout-jarvis-voice-assistant.json",
+          "../jarvis/.ship-manifest.json"
+        ],
+        "source": "codebase"
+      }
+    ],
+    "decisions_relevant": [],
+    "testable_assertions": [
+      {
+        "assertion": "Microphone foreground service type must be declared in AndroidManifest with FOREGROUND_SERVICE_MICROPHONE and FOREGROUND_SERVICE_LOCATION permissions",
+        "category": "architecture_boundary",
+        "verification": "Check AndroidManifest.xml for foregroundServiceType='microphone|location' and both FOREGROUND_SERVICE_* permissions",
+        "source": "codebase"
+      },
+      {
+        "assertion": "startForeground() must pass ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or FOREGROUND_SERVICE_TYPE_LOCATION bitwise-ORed",
+        "category": "architecture_boundary",
+        "verification": "Grep for startForeground calls and verify type constants are passed",
+        "source": "codebase"
+      },
+      {
+        "assertion": "AudioRecord must be destroyed and recreated on Bluetooth connect/disconnect events due to sample rate changes",
+        "category": "pattern_conformance",
+        "verification": "Verify AudioRecord.release() is called before new AudioRecord is constructed in BT transition handlers",
+        "source": "codebase"
+      },
+      {
+        "assertion": "MODE_IN_COMMUNICATION must be set before setCommunicationDevice() is called",
+        "category": "pattern_conformance",
+        "verification": "Grep for setCommunicationDevice and verify audioManager.mode = MODE_IN_COMMUNICATION precedes it",
+        "source": "codebase"
+      },
+      {
+        "assertion": "No audio noise preprocessing should be applied before sending to cloud STT",
+        "category": "architecture_boundary",
+        "verification": "Verify no NoiseSuppressor, RNNoise, or spectral subtraction is applied in the audio pipeline before STT upload",
+        "source": "codebase"
+      },
+      {
+        "assertion": "Only VAD-trimmed, speaker-verified audio segments are uploaded to cloud STT",
+        "category": "architecture_boundary",
+        "verification": "Trace audio pipeline: raw audio -> VAD -> speaker verification -> upload queue. No path should bypass verification.",
+        "source": "codebase"
+      },
+      {
+        "assertion": "Battery optimization whitelist request must be included in onboarding flow",
+        "category": "pattern_conformance",
+        "verification": "Check for ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS intent in onboarding Activity",
+        "source": "codebase"
+      },
+      {
+        "assertion": "Room DB must persist audio chunks, GPS coordinates, and transcript data for offline resilience",
+        "category": "dependency_constraint",
+        "verification": "Verify Room entities exist for audio chunks, GPS data, and transcripts with appropriate DAOs",
+        "source": "codebase"
+      },
+      {
+        "assertion": "GPS uses PRIORITY_HIGH_ACCURACY (not BALANCED) with batching via setMaxUpdateDelayMillis",
+        "category": "pattern_conformance",
+        "verification": "Grep for LocationRequest builder and verify HIGH_ACCURACY priority and batch delay settings",
+        "source": "codebase"
+      },
+      {
+        "assertion": "Bluetooth routing must implement 500ms+ stabilization delay after setCommunicationDevice callback before starting AudioRecord",
+        "category": "pattern_conformance",
+        "verification": "Verify delay between OnCommunicationDeviceChangedListener callback and AudioRecord.startRecording()",
+        "source": "codebase"
+      },
+      {
+        "assertion": "VOICE_COMMUNICATION audio source with fallback to VOICE_RECOGNITION if silence detected",
+        "category": "pattern_conformance",
+        "verification": "Verify AudioSource.VOICE_COMMUNICATION is primary with silence detection triggering fallback to VOICE_RECOGNITION",
+        "source": "codebase"
+      },
+      {
+        "assertion": "Service must never be started from background -- only from foreground Activity with user interaction",
+        "category": "architecture_boundary",
+        "verification": "Verify startForegroundService() is only called from Activity lifecycle methods, never from BroadcastReceiver or WorkManager",
+        "source": "codebase"
+      }
+    ],
+    "write_targets": [
+      "app/src/main/AndroidManifest.xml",
+      "app/src/main/java/.../service/RecordingService.kt",
+      "app/src/main/java/.../audio/AudioCaptureManager.kt",
+      "app/src/main/java/.../audio/BluetoothAudioRouter.kt",
+      "app/src/main/java/.../audio/VadProcessor.kt",
+      "app/src/main/java/.../speaker/SpeakerVerifier.kt",
+      "app/src/main/java/.../speaker/EnrollmentManager.kt",
+      "app/src/main/java/.../speaker/EmbeddingStore.kt",
+      "app/src/main/java/.../transcription/TranscriptionUploader.kt",
+      "app/src/main/java/.../transcription/ChunkQueue.kt",
+      "app/src/main/java/.../transcription/LlmPostProcessor.kt",
+      "app/src/main/java/.../location/GpsTracker.kt",
+      "app/src/main/java/.../db/AppDatabase.kt",
+      "app/src/main/java/.../db/entities/*.kt",
+      "app/src/main/java/.../db/dao/*.kt",
+      "app/src/main/java/.../ui/MainActivity.kt",
+      "app/src/main/java/.../ui/EnrollmentActivity.kt",
+      "app/src/main/java/.../ui/OnboardingActivity.kt",
+      "app/src/main/java/.../ui/DashboardActivity.kt",
+      "app/build.gradle.kts",
+      "build.gradle.kts",
+      "settings.gradle.kts",
+      "gradle/libs.versions.toml",
+      "web-dashboard/index.html",
+      "web-dashboard/api/*.kt or backend files"
+    ],
+    "read_targets": [
+      ".scope-android-selective-speaker.json",
+      ".clarify-android-selective-speaker.json",
+      "presearch/.research-android-selective-speaker.json",
+      "presearch/foreground-service-battery-governance.json",
+      "../bluetooth-audio-routing-deep.json",
+      "../research/bluetooth-audio-routing-android.json",
+      "docs/Screenshot 2026-03-18 at 5.44.13 PM.png",
+      "../jarvis/presearch/.scout-jarvis-voice-assistant.json"
+    ],
+    "conflicts": [
+      {
+        "subject": "Audio noise preprocessing before STT",
+        "codebase_says": "Clarify decision (gemini-sourced) specifies 'Audio preprocessing pipeline with environmental noise cancellation before speaker verification and STT'",
+        "research_says": "Deepgram and independent sources confirm noise preprocessing drives WER UP 15%. Modern STT models are trained on noisy data. Only VAD trimming is endorsed. Android NoiseSuppressor is a 'liar API' that produces silent recordings on many devices.",
+        "resolution": "Research wins. Drop noise preprocessing entirely. VAD trimming before STT upload is the only endorsed preprocessing. The clarify decision was speculative (gemini-sourced, not user-sourced) and is directly contradicted by authoritative research."
+      },
+      {
+        "subject": "GPS accuracy level",
+        "codebase_says": "No explicit decision -- clarify says 'GPS tagging on all transcription segments' without specifying accuracy level",
+        "research_says": "PRIORITY_BALANCED_POWER_ACCURACY provides only ~100m accuracy (city block), not the ~10m needed for field environments. PRIORITY_HIGH_ACCURACY with actual GPS hardware is required.",
+        "resolution": "Research wins. Use HIGH_ACCURACY with batching (setMaxUpdateDelayMillis) to offset battery cost. 100m accuracy is insufficient for field documentation."
+      },
+      {
+        "subject": "Speaker verification impact of low-quality Bluetooth audio",
+        "codebase_says": "No established pattern -- greenfield",
+        "research_says": "SCO audio (8-16kHz) significantly degrades speaker verification compared to higher sample rates. LE Audio (32-48kHz) is far better. But no quantitative EER impact data exists for 8kHz vs 16kHz vs 32kHz input.",
+        "resolution": "Gap -- must benchmark empirically. Prefer LE Audio when available. May need to adjust cosine similarity threshold based on audio source quality. Consider rejecting verification from 8kHz SCO if accuracy is unacceptable."
+      }
+    ],
+    "completeness": {
+      "confidence": "exhaustive",
+      "occurrences": [
+        {
+          "target": "All project files",
+          "locations": [
+            ".scope-android-selective-speaker.json",
+            ".clarify-android-selective-speaker.json",
+            "presearch/.research-android-selective-speaker.json",
+            "presearch/foreground-service-battery-governance.json",
+            "docs/Screenshot 2026-03-18 at 5.44.13 PM.png",
+            ".DS_Store"
+          ],
+          "search_strategies": ["Glob **/* from project root", "Glob **/*.kt", "Glob **/*.gradle*", "Glob **/*.xml"],
+          "blind_spots": ["None -- exhaustive search of all files in project directory confirms greenfield status"]
+        },
+        {
+          "target": "Supplementary research at parent level",
+          "locations": [
+            "../bluetooth-audio-routing-deep.json",
+            "../research/bluetooth-audio-routing-android.json"
+          ],
+          "search_strategies": ["Glob *.json from frontieraudio root", "Glob **/* from frontieraudio root"],
+          "blind_spots": ["helios/ sibling project not inspected -- likely irrelevant"]
+        }
+      ]
+    },
+    "blast_radius": [
+      {
+        "write_target": "All files (greenfield)",
+        "dependents": [],
+        "test_coverage": [],
+        "runtime_contracts": [
+          "AssemblyAI Universal-3 Pro API -- audio upload and transcript retrieval",
+          "Android Foreground Service contract -- manifest declaration, permission grants, startForeground type constants",
+          "Bluetooth SCO/LE Audio hardware contract -- setCommunicationDevice, AudioDeviceCallback",
+          "FusedLocationProviderClient -- GPS location updates",
+          "Room DB schema -- offline persistence for audio chunks, GPS, transcripts"
+        ],
+        "failure_symptoms": "Greenfield project -- no existing code to break. Primary risk is runtime contract violations: ForegroundServiceStartNotAllowedException if manifest/permissions are wrong, SecurityException if service type not passed to startForeground, silent audio from Bluetooth routing race conditions, service killed by OEM battery management."
+      }
+    ],
+    "gaps": [
+      "Speaker verification: ECAPA-TDNN inference latency on Android ARM (Snapdragon/MediaTek) -- no benchmarks found",
+      "Speaker verification: minimum enrollment duration for reliable verification (10s? 30s? 60s?) -- no authoritative source",
+      "Speaker verification: EER impact of 8-16kHz Bluetooth SCO audio vs 32-48kHz LE Audio vs 48kHz built-in mic",
+      "Speaker verification: TFLite vs ONNX Runtime performance comparison on Android for speaker embeddings",
+      "Cloud STT: no independent benchmarks for industrial field audio (construction, machinery) -- all benchmarks use general noisy datasets",
+      "Cloud STT: batch processing turnaround latency comparison across providers",
+      "GPS: quantitative battery consumption (mAh) for HIGH_ACCURACY vs BALANCED over 8+ hour sessions",
+      "GPS: timestamp synchronization precision between FusedLocationProvider and AudioRecord buffers",
+      "Foreground service: real-world battery drain for 8+ hours continuous microphone recording -- no published benchmarks",
+      "Foreground service: exact OEM behavior when service is killed -- does audio hardware pipeline survive independently?",
+      "LLM post-processing: specific model/approach for transcription error correction not researched",
+      "Web dashboard: backend stack not decided (Firebase vs Supabase vs custom API)",
+      "Web dashboard: authentication and multi-user access patterns not designed",
+      "Enrollment UX: what constitutes a good enrollment experience (guided prompts? specific phrases? ambient speech?)"
+    ]
+  }
+}

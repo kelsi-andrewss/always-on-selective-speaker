@@ -1,0 +1,349 @@
+{
+  "slug": "android-selective-speaker",
+  "skill": "research",
+  "scope": {
+    "files": null,
+    "stories": null,
+    "complexity": null
+  },
+  "route_hint": null,
+  "prev": ["/Users/kelsiandrews/gauntlet/hiring partners/frontieraudio/always on selective speaker/.scope-android-selective-speaker.json"],
+  "data": {
+    "topic": "Always-on Android selective speaker transcription app: best practices for Android foreground services with continuous audio recording, on-device speaker verification, cloud STT APIs, Bluetooth audio routing, and battery-efficient GPS tracking",
+    "angles_generated": 5,
+    "partial_research": true,
+    "synthesized_findings": [
+      {
+        "theme": "Always-On Foreground Service Architecture",
+        "claims": [
+          {
+            "claim": "Microphone foreground service type is EXEMPT from Android 15's 6-hour timeout and audio-related wake locks are exempt from Android Vitals 2-hour penalty — making it the correct service type for always-on recording.",
+            "source_urls": ["https://developer.android.com/about/versions/15/behavior-changes-15#fgs-timeout", "https://developer.android.com/topic/performance/vitals/wakelocks#exemptions"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Microphone FGS CANNOT be started from background, BOOT_COMPLETED, or via CompanionDeviceManager — RECORD_AUDIO is a while-in-use permission. The ONLY safe start path is from a foreground Activity with user interaction.",
+            "source_urls": ["https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start", "https://developer.android.com/about/versions/15/behavior-changes-15#fg-service-boot-completed"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Doze mode ignores PARTIAL_WAKE_LOCK for all apps UNLESS on battery optimization whitelist. Apps must request ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (user consent required, Play Store policy restricted) to retain wake locks and network during Doze.",
+            "source_urls": ["https://developer.android.com/training/monitoring-device-state/doze-standby", "https://developer.android.com/about/versions/12/behavior-changes-all#battery-usage-states"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "START_STICKY restarts on Android 12+ are treated as background starts — may throw ForegroundServiceStartNotAllowedException if app is background at restart time. The only durable pattern is to never let the service die.",
+            "source_urls": ["https://developer.android.com/about/versions/12/behavior-changes-12#foreground-service-launch-restrictions"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Samsung One UI 7 predictive engine pre-kills services after 4+ hours of predicted inactivity. Xiaomi HyperOS 2 requires proprietary 'Background Autostart' permission. App MUST include OEM-specific onboarding UX guiding users through 'Never sleeping apps' / autostart settings.",
+            "source_urls": ["https://dontkillmyapp.com/samsung", "https://dontkillmyapp.com/xiaomi"],
+            "confidence": "medium",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "WorkManager heartbeat watchdog (15-min PeriodicWorkRequest) can restart killed services, but on Android 12+ must use setExpedited() and is subject to job quotas. Safety net, not primary reliability mechanism.",
+            "source_urls": ["https://developer.android.com/topic/libraries/architecture/workmanager/how-to/expedited-work"],
+            "confidence": "high",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "Google Play requires formal declaration for microphone FGS including feature description, user impact statement, and video demonstration. Wake lock enforcement began March 1, 2026: >2hr non-exempt wake locks in >5% sessions triggers warnings.",
+            "source_urls": ["https://support.google.com/googleplay/android-developer/answer/13392821", "https://android-developers.googleblog.com/2026/03/battery-technical-quality-enforcement.html"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Android 14+ requires foregroundServiceType in manifest, FOREGROUND_SERVICE_MICROPHONE permission, RECORD_AUDIO runtime permission, and explicit type constant passed to startForeground(). Missing any causes crash.",
+            "source_urls": ["https://developer.android.com/about/versions/14/changes/fgs-types-required"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          }
+        ],
+        "key_insight": "Microphone FGS is the golden path (timeout-exempt, Vitals-exempt) but has a hard constraint: must be user-initiated from foreground. Architecture must ensure the service never dies once started, backed by battery optimization whitelist + OEM-specific onboarding + WorkManager watchdog."
+      },
+      {
+        "theme": "On-Device Speaker Verification",
+        "claims": [
+          {
+            "claim": "sherpa-onnx provides production-ready on-device speaker verification for Android with ECAPA-TDNN and 3D-Speaker (ERes2Net) models in ONNX format. Includes speaker_embedding_extractor, speaker_embedding_manager, and cosine_similarity utilities.",
+            "source_urls": ["https://github.com/k2-fsa/sherpa-onnx"],
+            "confidence": "medium",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "ECAPA-TDNN (SpeechBrain) produces 192-dimensional speaker embeddings. The model can be exported to ONNX format for mobile inference. VoxCeleb1 test EER is approximately 0.80%.",
+            "source_urls": ["https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb"],
+            "confidence": "medium",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "Silero VAD is a lightweight voice activity detection model available for Android/Kotlin, operating at 16kHz with low latency. Can gate speaker verification to only run during detected speech.",
+            "source_urls": ["https://github.com/snakers4/silero-vad"],
+            "confidence": "medium",
+            "agent_attribution": "claude"
+          }
+        ],
+        "key_insight": "sherpa-onnx is the most promising path for on-device speaker verification on Android — provides ECAPA-TDNN and 3D-Speaker models with ONNX Runtime inference. Silero VAD for speech gating. PARTIAL RESEARCH: Gemini agents failed, specific TFLite conversion details, inference latency benchmarks, and minimum enrollment duration data are gaps."
+      },
+      {
+        "theme": "Cloud STT API Selection",
+        "claims": [
+          {
+            "claim": "AssemblyAI Universal-3 Pro leads on noisy audio WER at 9.97% (vs Deepgram Nova-3 at 14.12%, OpenAI Whisper at 11.63%) on real-world noisy benchmarks, at $3.50/1,000 minutes.",
+            "source_urls": ["https://www.assemblyai.com/benchmarks", "https://artificialanalysis.ai/speech-to-text/models/assemblyai"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Google Chirp 3 achieves lowest overall WER (~3.1-4.6% on AA-WER) with built-in denoiser, but costs $16.00/1,000 min (4-6x competitors). Dynamic batch at $4.00/1,000 min but 24hr turnaround and 20-min file limit with word timestamps.",
+            "source_urls": ["https://artificialanalysis.ai/speech-to-text/models/google", "https://cloud.google.com/speech-to-text/pricing"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Deepgram Nova-3 at $7.70/1,000 min supports 100+ audio formats, word-level timestamps at millisecond precision, and keyterm prompting (100 domain terms). Nova-3 specifically designed for noisy, far-field, crosstalk audio.",
+            "source_urls": ["https://deepgram.com/pricing", "https://developers.deepgram.com/docs/supported-audio-formats"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "OpenAI Whisper-1 is batch-only (streaming ignored). gpt-4o-transcribe supports both batch and streaming at $6.00/1,000 min. Whisper degrades dramatically in heavy noise (15-29% WER).",
+            "source_urls": ["https://platform.openai.com/docs/guides/audio", "https://openai.com/api/pricing/"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Deepgram explicitly recommends NOT applying noise preprocessing before STT — spectral subtraction improves SNR by 8dB but drives WER UP 15%. Only VAD trimming is endorsed (30-40% cost savings by removing silence).",
+            "source_urls": ["https://deepgram.com/learn/noise-robust-speech-recognition-methods-best-practices"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "Word-level timestamps are included at no additional cost for both Deepgram (Nova-2/3) and AssemblyAI (Universal-2/3 Pro).",
+            "source_urls": ["https://deepgram.com/pricing", "https://www.assemblyai.com/pricing"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "AssemblyAI Slam-1 is a speech-language model supporting prompt-based customization with up to 1,000 domain terms at $2.50/1,000 min, achieving 4.1% WER on AA-WER benchmark.",
+            "source_urls": ["https://artificialanalysis.ai/speech-to-text/models/assemblyai"],
+            "confidence": "medium",
+            "agent_attribution": "both"
+          }
+        ],
+        "key_insight": "AssemblyAI Universal-3 Pro is the best fit for noisy field audio: lowest noisy WER (9.97%), competitive pricing ($3.50/1K min), word-level timestamps included, and promptable context for domain terminology. Do NOT preprocess audio for noise — send raw with VAD trimming only."
+      },
+      {
+        "theme": "Bluetooth Audio Routing",
+        "claims": [
+          {
+            "claim": "startBluetoothSco() deprecated at API 31 (not 33). Replacement: setCommunicationDevice(AudioDeviceInfo) with getAvailableCommunicationDevices() and clearCommunicationDevice().",
+            "source_urls": ["https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo)"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "setCommunicationDevice() returns boolean = 'accepted' not 'complete'. SCO hardware handshake takes 500-1500ms after return. Must add 500-1000ms post-callback delay and discard initial audio frames.",
+            "source_urls": ["https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo)"],
+            "confidence": "high",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "HFP/SCO caps at 8kHz (CVSD narrowband) or 16kHz (mSBC wideband, HFP 1.6+). LE Audio with LC3 supports 32-48kHz bidirectional. Android 14+ adds HFP 1.9 Super Wideband at 32kHz (LC3-SWB).",
+            "source_urls": ["https://developer.android.com/develop/connectivity/bluetooth/ble-audio/audio-recording", "https://marco.zone/bluetooth-sco-and-msbc"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "LE Audio recording targets 32kHz sample rate with ENCODING_PCM_16BIT via AudioDeviceInfo.TYPE_BLE_HEADSET (API 33+). Must use setCommunicationDevice() — startBluetoothSco() will NOT detect LE Audio devices.",
+            "source_urls": ["https://developer.android.com/develop/connectivity/bluetooth/ble-audio/audio-recording"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "On Bluetooth disconnect, AudioRecord MUST be stopped and recreated (not just rerouted) because SCO sample rate (8-16kHz) differs from built-in mic native rate. Failing to recreate causes distorted audio.",
+            "source_urls": ["https://source.android.com/docs/core/audio/bluetooth"],
+            "confidence": "high",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "setCommunicationDevice() requires MODE_IN_COMMUNICATION to be set BEFORE the routing request. MODE_NORMAL causes silent ignore or immediate revert.",
+            "source_urls": ["https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo)"],
+            "confidence": "high",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "Samsung S23-S26 exhibit 200-500ms phantom delay after 'Connected' state before audio path opens. Pixel 7-10 VOICE_COMMUNICATION source gets 'stolen' by Hey Google, producing silent PCM. Defense: stabilization delay + discard initial frames + fallback to VOICE_RECOGNITION source.",
+            "source_urls": ["https://github.com/google/oboe/issues", "https://stackoverflow.com/questions/70498453/android-12-bluetooth-sco-not-working"],
+            "confidence": "medium",
+            "agent_attribution": "gemini"
+          },
+          {
+            "claim": "AudioDeviceCallback (API 23+) fires onAudioDevicesAdded/Removed for BT events. TYPE_BLUETOOTH_SCO for classic, TYPE_BLE_HEADSET for LE Audio. Does NOT require BLUETOOTH_CONNECT permission on API 31+.",
+            "source_urls": ["https://developer.android.com/reference/android/media/AudioDeviceCallback"],
+            "confidence": "high",
+            "agent_attribution": "both"
+          },
+          {
+            "claim": "NoiseSuppressor.isAvailable() is unreliable — many mid-range devices report true but produce silent recordings. VOICE_RECOGNITION audio source bypasses aggressive OEM noise cancellation.",
+            "source_urls": ["https://developer.android.com/reference/android/media/audiofx/NoiseSuppressor"],
+            "confidence": "medium",
+            "agent_attribution": "gemini"
+          }
+        ],
+        "key_insight": "Bluetooth routing is the most fragile component. Must implement: (1) setCommunicationDevice() with MODE_IN_COMMUNICATION pre-set, (2) 500-1000ms stabilization delay after callback, (3) discard first ~500ms of audio, (4) recreate AudioRecord on disconnect (sample rate changes), (5) fallback from VOICE_COMMUNICATION to VOICE_RECOGNITION if silence detected. LE Audio (32kHz) is far better for speaker verification than SCO (8-16kHz)."
+      },
+      {
+        "theme": "Battery-Efficient GPS & Audio Preprocessing",
+        "claims": [
+          {
+            "claim": "PRIORITY_BALANCED_POWER_ACCURACY provides ~100m accuracy (city block level), NOT ~10m as hypothesized. Uses WiFi/cell only. PRIORITY_HIGH_ACCURACY with GPS required for 10m accuracy at significantly higher battery cost.",
+            "source_urls": ["https://google-developer-training.github.io/android-developer-advanced-course-concepts/unit-4-add-geo-features-to-your-apps/lesson-7-location/7-1-c-location-services/7-1-c-location-services.html"],
+            "confidence": "high",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "setMaxUpdateDelayMillis() enables location batching: setting 2x+ the interval allows batch delivery, reducing device wake-ups. Example: compute every 10 min, deliver every 60 min.",
+            "source_urls": ["https://developer.android.com/develop/sensors-and-location/location/battery/optimize"],
+            "confidence": "high",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "Android 14+ requires foreground service to declare both types in manifest (location|microphone) and both permissions (FOREGROUND_SERVICE_LOCATION, FOREGROUND_SERVICE_MICROPHONE). startForeground() must bitwise-OR both type constants.",
+            "source_urls": ["https://developer.android.com/develop/background-work/services/fgs/service-types"],
+            "confidence": "high",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "RNNoise model is ~85KB (8-bit quantized), runs 60x faster than real-time on x86, ~7x on Raspberry Pi 3, with <10ms latency. But operates at 48kHz natively — 16kHz audio requires resample-up/down (adding overhead).",
+            "source_urls": ["https://jmvalin.ca/demo/rnnoise/", "https://github.com/xiph/rnnoise/issues/37"],
+            "confidence": "high",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "Applying noise reduction before ASR can DEGRADE accuracy — modern STT models are trained on noisy data. Only beneficial in very low SNR scenarios. Android's built-in NoiseSuppressor is NOT recommended for VOICE_RECOGNITION source.",
+            "source_urls": ["https://deepgram.com/learn/the-noise-reduction-paradox-why-it-may-hurt-speech-to-text-accuracy", "https://source.android.com/docs/core/audio/implement-pre-processing"],
+            "confidence": "high",
+            "agent_attribution": "claude"
+          },
+          {
+            "claim": "GPS timestamp synchronization with audio requires better than 5-second accuracy. SystemClock.elapsedRealtimeNanos() is recommended for synchronizing sensor events with audio timestamps.",
+            "source_urls": ["https://wiki.openstreetmap.org/wiki/Audio_mapping"],
+            "confidence": "medium",
+            "agent_attribution": "claude"
+          }
+        ],
+        "key_insight": "Skip audio noise preprocessing entirely — it hurts STT accuracy and is unnecessary with modern models. For GPS, PRIORITY_HIGH_ACCURACY is needed for 10m accuracy (BALANCED only gives 100m), but use batching (setMaxUpdateDelayMillis) to reduce battery impact. Combine service types via bitwise-OR in a single foreground service."
+      }
+    ],
+    "angle_summaries": [
+      {
+        "angle": "Always-On Foreground Service & Battery",
+        "source": "both",
+        "finding_count": 38,
+        "key_insights": [
+          "Microphone FGS is timeout-exempt and Vitals wake-lock-exempt — the golden path",
+          "Must be user-initiated from foreground (no background/boot start possible)",
+          "Battery optimization whitelist essential for Doze survival",
+          "OEM killing (Samsung/Xiaomi) requires onboarding UX, not code"
+        ]
+      },
+      {
+        "angle": "On-Device Speaker Verification",
+        "source": "claude",
+        "finding_count": 3,
+        "key_insights": [
+          "sherpa-onnx provides production-ready ECAPA-TDNN for Android",
+          "Silero VAD for speech gating before verification",
+          "PARTIAL: inference latency, model size, enrollment duration are gaps"
+        ]
+      },
+      {
+        "angle": "Cloud STT API Evaluation",
+        "source": "both",
+        "finding_count": 33,
+        "key_insights": [
+          "AssemblyAI Universal-3 Pro leads noisy WER at best price",
+          "Do NOT preprocess audio — send raw, VAD trim only",
+          "Word-level timestamps included free with top providers"
+        ]
+      },
+      {
+        "angle": "Bluetooth Audio Routing",
+        "source": "both",
+        "finding_count": 40,
+        "key_insights": [
+          "setCommunicationDevice replaces startBluetoothSco (API 31+)",
+          "SCO caps at 8-16kHz; LE Audio gives 32-48kHz for better verification",
+          "Must recreate AudioRecord on BT disconnect (sample rate change)",
+          "Multiple OEM-specific silent audio bugs require defense-in-depth"
+        ]
+      },
+      {
+        "angle": "GPS & Audio Preprocessing",
+        "source": "claude",
+        "finding_count": 18,
+        "key_insights": [
+          "BALANCED accuracy is 100m, not 10m — need HIGH_ACCURACY for field use",
+          "Location batching reduces battery drain significantly",
+          "Skip noise preprocessing — hurts modern STT more than helps"
+        ]
+      }
+    ],
+    "citations": [
+      {"url": "https://developer.android.com/about/versions/15/behavior-changes-15", "title": "Android 15 Behavior Changes", "quality": "authoritative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://developer.android.com/develop/background-work/services/fgs/service-types", "title": "Foreground Service Types", "quality": "authoritative", "referenced_by": ["Always-On Foreground Service & Battery", "GPS & Audio Preprocessing"]},
+      {"url": "https://developer.android.com/training/monitoring-device-state/doze-standby", "title": "Doze and App Standby", "quality": "authoritative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start", "title": "FGS Background Start Restrictions", "quality": "authoritative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://dontkillmyapp.com/samsung", "title": "Don't Kill My App - Samsung", "quality": "informative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://dontkillmyapp.com/xiaomi", "title": "Don't Kill My App - Xiaomi", "quality": "informative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://android-developers.googleblog.com/2026/03/battery-technical-quality-enforcement.html", "title": "Battery Technical Quality Enforcement", "quality": "authoritative", "referenced_by": ["Always-On Foreground Service & Battery"]},
+      {"url": "https://github.com/k2-fsa/sherpa-onnx", "title": "sherpa-onnx - On-device speech processing", "quality": "authoritative", "referenced_by": ["On-Device Speaker Verification"]},
+      {"url": "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb", "title": "SpeechBrain ECAPA-TDNN VoxCeleb", "quality": "authoritative", "referenced_by": ["On-Device Speaker Verification"]},
+      {"url": "https://github.com/snakers4/silero-vad", "title": "Silero VAD", "quality": "authoritative", "referenced_by": ["On-Device Speaker Verification"]},
+      {"url": "https://www.assemblyai.com/benchmarks", "title": "AssemblyAI Benchmarks", "quality": "informative", "referenced_by": ["Cloud STT API Evaluation"]},
+      {"url": "https://artificialanalysis.ai/speech-to-text/models/assemblyai", "title": "Artificial Analysis - AssemblyAI", "quality": "authoritative", "referenced_by": ["Cloud STT API Evaluation"]},
+      {"url": "https://deepgram.com/pricing", "title": "Deepgram Pricing", "quality": "authoritative", "referenced_by": ["Cloud STT API Evaluation"]},
+      {"url": "https://www.assemblyai.com/pricing", "title": "AssemblyAI Pricing", "quality": "authoritative", "referenced_by": ["Cloud STT API Evaluation"]},
+      {"url": "https://deepgram.com/learn/noise-robust-speech-recognition-methods-best-practices", "title": "Deepgram Noise Robust STT", "quality": "informative", "referenced_by": ["Cloud STT API Evaluation", "GPS & Audio Preprocessing"]},
+      {"url": "https://developer.android.com/develop/connectivity/bluetooth/ble-audio/audio-recording", "title": "LE Audio Recording Guide", "quality": "authoritative", "referenced_by": ["Bluetooth Audio Routing"]},
+      {"url": "https://developer.android.com/develop/connectivity/bluetooth/ble-audio/audio-manager", "title": "LE Audio AudioManager Guide", "quality": "authoritative", "referenced_by": ["Bluetooth Audio Routing"]},
+      {"url": "https://developer.android.com/reference/android/media/AudioDeviceCallback", "title": "AudioDeviceCallback Reference", "quality": "authoritative", "referenced_by": ["Bluetooth Audio Routing"]},
+      {"url": "https://source.android.com/docs/core/audio/bluetooth", "title": "AOSP Bluetooth Audio", "quality": "authoritative", "referenced_by": ["Bluetooth Audio Routing"]},
+      {"url": "https://developer.android.com/develop/sensors-and-location/location/battery", "title": "Location and Battery", "quality": "authoritative", "referenced_by": ["GPS & Audio Preprocessing"]},
+      {"url": "https://jmvalin.ca/demo/rnnoise/", "title": "RNNoise Demo", "quality": "authoritative", "referenced_by": ["GPS & Audio Preprocessing"]}
+    ],
+    "conflicts": [
+      {
+        "topic": "startBluetoothSco() deprecation API level",
+        "gemini_claim": {"claim": "Deprecated at API 31 (Android 12)", "source_urls": ["https://developer.android.com/reference/android/media/AudioManager#setCommunicationDevice(android.media.AudioDeviceInfo)"]},
+        "claude_claim": {"claim": "Deprecated at API 33 (Android 13)", "source_urls": ["https://developer.android.com/develop/connectivity/bluetooth/ble-audio/audio-manager"]},
+        "credibility_assessment": "Gemini's source (direct API reference) is more authoritative. API 31 is the correct deprecation level — setCommunicationDevice() was introduced in API 31 as the replacement."
+      },
+      {
+        "topic": "Noise preprocessing impact on STT accuracy",
+        "gemini_claim": {"claim": "Noise preprocessing drives WER up 15% according to Deepgram", "source_urls": ["https://deepgram.com/learn/noise-robust-speech-recognition-methods-best-practices"]},
+        "claude_claim": {"claim": "Noise suppression is still beneficial in very low SNR scenarios to prevent mis-triggering", "source_urls": ["https://deepgram.com/learn/the-noise-reduction-paradox-why-it-may-hurt-speech-to-text-accuracy"]},
+        "credibility_assessment": "Both claims are from Deepgram. Not a true conflict — noise preprocessing hurts in normal conditions but helps in extreme low-SNR. For field environments with variable noise, skip preprocessing and let the STT model handle it; only consider preprocessing if SNR is consistently below ~5dB."
+      }
+    ],
+    "gaps": [
+      "Speaker verification: ECAPA-TDNN inference latency on Android ARM processors (Snapdragon/MediaTek) — no benchmarks found",
+      "Speaker verification: minimum enrollment duration for reliable verification (10s? 30s? 60s?) — no authoritative source",
+      "Speaker verification: TFLite vs ONNX Runtime performance comparison on Android for speaker embeddings",
+      "Speaker verification: impact of 8-16kHz Bluetooth SCO audio on speaker verification EER — no biometric-specific data",
+      "Cloud STT: no independent benchmarks for industrial field audio (construction, machinery) — all benchmarks use general noisy datasets",
+      "Cloud STT: batch processing turnaround latency comparison across providers not documented",
+      "GPS: no quantitative battery consumption data (mAh) comparing HIGH_ACCURACY vs BALANCED — only qualitative",
+      "GPS: synchronization precision between FusedLocationProvider timestamps and AudioRecord buffer timestamps",
+      "Foreground service: exact behavior when OEM kills microphone FGS — does audio hardware pipeline survive independently of wake locks?",
+      "Foreground service: real-world battery drain for 8+ hours continuous microphone recording — no published benchmarks"
+    ]
+  }
+}
