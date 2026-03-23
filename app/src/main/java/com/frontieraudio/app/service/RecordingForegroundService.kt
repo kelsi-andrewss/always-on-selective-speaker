@@ -10,6 +10,9 @@ import android.util.Log
 import com.frontieraudio.app.domain.model.AudioChunk
 import com.frontieraudio.app.domain.model.SpeakerProfile
 import com.frontieraudio.app.service.audio.AudioCaptureManager
+import com.frontieraudio.app.service.audio.AudioConfig
+import com.frontieraudio.app.service.audio.BluetoothAudioRouter
+import com.frontieraudio.app.service.audio.RoutingEvent
 import com.frontieraudio.app.service.audio.SileroVadProcessor
 import com.frontieraudio.app.service.location.GpsTracker
 import com.frontieraudio.app.service.location.LocationBatchManager
@@ -40,11 +43,13 @@ class RecordingForegroundService : Service() {
     @Inject lateinit var gpsTracker: GpsTracker
     @Inject lateinit var locationBatchManager: LocationBatchManager
     @Inject lateinit var notificationManager: ServiceNotificationManager
+    @Inject lateinit var bluetoothAudioRouter: BluetoothAudioRouter
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var pipelineJob: Job? = null
     private var locationJob: Job? = null
     private var notificationJob: Job? = null
+    private var bluetoothJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var startTimeMs: Long = 0L
 
@@ -72,6 +77,7 @@ class RecordingForegroundService : Service() {
 
         _isRunning.value = true
         startPipeline()
+        startBluetoothRouting()
         startLocationTracking()
         startNotificationUpdater()
 
@@ -85,11 +91,17 @@ class RecordingForegroundService : Service() {
         pipelineJob?.cancel()
         locationJob?.cancel()
         notificationJob?.cancel()
+        bluetoothJob?.cancel()
 
         try {
             audioCaptureManager.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping audio capture", e)
+        }
+        try {
+            bluetoothAudioRouter.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing BT audio router", e)
         }
         try {
             vadProcessor.release()
@@ -156,6 +168,36 @@ class RecordingForegroundService : Service() {
                 Log.e(TAG, "Audio pipeline error", e)
             }
         }
+    }
+
+    private fun startBluetoothRouting() {
+        bluetoothJob = serviceScope.launch {
+            try {
+                bluetoothAudioRouter.observeRouting().collect { event ->
+                    when (event) {
+                        is RoutingEvent.BluetoothRouted -> {
+                            Log.i(TAG, "BT routed: sampleRate=${event.sampleRate}")
+                            restartPipelineWithDevice(event.sampleRate, event.audioSource)
+                        }
+                        is RoutingEvent.FallbackToBuiltIn -> {
+                            Log.i(TAG, "BT disconnected, reverting to built-in mic")
+                            restartPipelineWithDevice(
+                                sampleRate = AudioConfig.SAMPLE_RATE,
+                                audioSource = AudioConfig.PRIMARY_AUDIO_SOURCE,
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Bluetooth routing observation failed", e)
+            }
+        }
+    }
+
+    private fun restartPipelineWithDevice(sampleRate: Int, audioSource: Int) {
+        pipelineJob?.cancel()
+        audioCaptureManager.recreateForDevice(sampleRate, audioSource)
+        startPipeline()
     }
 
     private fun processChunk(

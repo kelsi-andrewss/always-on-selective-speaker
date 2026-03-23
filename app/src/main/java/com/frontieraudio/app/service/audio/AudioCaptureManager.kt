@@ -2,6 +2,7 @@ package com.frontieraudio.app.service.audio
 
 import android.annotation.SuppressLint
 import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -11,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 enum class AudioSource { VOICE_COMMUNICATION, VOICE_RECOGNITION }
 
@@ -22,22 +24,58 @@ class AudioCaptureManager @Inject constructor() {
     var currentSource: AudioSource = AudioSource.VOICE_COMMUNICATION
         private set
 
+    var currentSampleRate: Int = AudioConfig.SAMPLE_RATE
+        private set
+
+    @Volatile
+    private var discardFramesUntil: Long = 0L
+
     @SuppressLint("MissingPermission")
     fun start(): Flow<ShortArray> = callbackFlow {
-        val record = createAudioRecord()
+        val record = createAudioRecord(currentSampleRate, audioSourceInt(currentSource))
             ?: throw IllegalStateException("Failed to initialize AudioRecord with any audio source")
 
         audioRecord = record
         record.startRecording()
 
         withContext(Dispatchers.Default) {
-            val frameSamples = AudioConfig.FRAME_SIZE_SAMPLES
+            val frameSamples = frameSamplesForRate(currentSampleRate)
             val buffer = ShortArray(frameSamples)
+            var silentFrameCount = 0
+            val silenceThresholdFrames = silenceFrameCount(currentSampleRate)
 
             while (isActive && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val read = record.read(buffer, 0, frameSamples)
                 when {
                     read == frameSamples -> {
+                        if (System.currentTimeMillis() < discardFramesUntil) continue
+
+                        if (isSilent(buffer, read)) {
+                            silentFrameCount++
+                            if (silentFrameCount >= silenceThresholdFrames &&
+                                currentSource == AudioSource.VOICE_COMMUNICATION
+                            ) {
+                                Log.w(TAG, "Silence detected for ~2s on VOICE_COMMUNICATION, switching to VOICE_RECOGNITION")
+                                val fallback = tryCreateRecord(
+                                    AudioConfig.FALLBACK_AUDIO_SOURCE,
+                                    currentSampleRate,
+                                )
+                                if (fallback != null) {
+                                    record.stop()
+                                    record.release()
+                                    audioRecord = fallback
+                                    currentSource = AudioSource.VOICE_RECOGNITION
+                                    fallback.startRecording()
+                                    silentFrameCount = 0
+                                    discardFramesUntil = System.currentTimeMillis() + DISCARD_AFTER_SWITCH_MS
+                                    break
+                                }
+                                silentFrameCount = 0
+                            }
+                        } else {
+                            silentFrameCount = 0
+                        }
+
                         trySend(buffer.copyOf())
                     }
                     read == AudioRecord.ERROR_INVALID_OPERATION -> {
@@ -59,46 +97,78 @@ class AudioCaptureManager @Inject constructor() {
         awaitClose { stop() }
     }
 
+    fun recreateForDevice(sampleRate: Int, audioSource: Int) {
+        Log.i(TAG, "recreateForDevice: sampleRate=$sampleRate, audioSource=$audioSource")
+        stop()
+
+        currentSampleRate = sampleRate
+        currentSource = if (audioSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION) {
+            AudioSource.VOICE_COMMUNICATION
+        } else {
+            AudioSource.VOICE_RECOGNITION
+        }
+
+        discardFramesUntil = System.currentTimeMillis() + DISCARD_AFTER_SWITCH_MS
+    }
+
     fun stop() {
         audioRecord?.let { record ->
-            if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                record.stop()
+            try {
+                if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    record.stop()
+                }
+                record.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping AudioRecord", e)
             }
-            record.release()
         }
         audioRecord = null
     }
 
     @SuppressLint("MissingPermission")
-    private fun createAudioRecord(): AudioRecord? {
-        val primary = tryCreateRecord(AudioConfig.PRIMARY_AUDIO_SOURCE)
+    private fun createAudioRecord(sampleRate: Int, preferredSource: Int): AudioRecord? {
+        val primary = tryCreateRecord(preferredSource, sampleRate)
         if (primary != null) {
-            currentSource = AudioSource.VOICE_COMMUNICATION
-            Log.i(TAG, "AudioRecord initialized with VOICE_COMMUNICATION")
+            currentSource = if (preferredSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION) {
+                AudioSource.VOICE_COMMUNICATION
+            } else {
+                AudioSource.VOICE_RECOGNITION
+            }
+            Log.i(TAG, "AudioRecord initialized with source=$preferredSource, rate=$sampleRate")
             return primary
         }
 
-        Log.w(TAG, "VOICE_COMMUNICATION failed, falling back to VOICE_RECOGNITION")
-        val fallback = tryCreateRecord(AudioConfig.FALLBACK_AUDIO_SOURCE)
-        if (fallback != null) {
-            currentSource = AudioSource.VOICE_RECOGNITION
-            Log.i(TAG, "AudioRecord initialized with VOICE_RECOGNITION")
-            return fallback
+        if (preferredSource == AudioConfig.PRIMARY_AUDIO_SOURCE) {
+            Log.w(TAG, "VOICE_COMMUNICATION failed, falling back to VOICE_RECOGNITION")
+            val fallback = tryCreateRecord(AudioConfig.FALLBACK_AUDIO_SOURCE, sampleRate)
+            if (fallback != null) {
+                currentSource = AudioSource.VOICE_RECOGNITION
+                Log.i(TAG, "AudioRecord initialized with VOICE_RECOGNITION, rate=$sampleRate")
+                return fallback
+            }
         }
 
-        Log.e(TAG, "Failed to create AudioRecord with any source")
+        Log.e(TAG, "Failed to create AudioRecord with any source at rate $sampleRate")
         return null
     }
 
     @SuppressLint("MissingPermission")
-    private fun tryCreateRecord(audioSource: Int): AudioRecord? {
+    private fun tryCreateRecord(audioSource: Int, sampleRate: Int): AudioRecord? {
         return try {
-            val record = AudioRecord(
-                audioSource,
-                AudioConfig.SAMPLE_RATE,
+            val minBuffer = AudioRecord.getMinBufferSize(
+                sampleRate,
                 AudioConfig.CHANNEL_CONFIG,
                 AudioConfig.AUDIO_FORMAT,
-                AudioConfig.BUFFER_SIZE,
+            )
+            val frameSamples = frameSamplesForRate(sampleRate)
+            val bufferSize = minBuffer.coerceAtLeast(frameSamples * AudioConfig.BYTES_PER_SAMPLE) * 2
+
+            val record = AudioRecord(
+                audioSource,
+                sampleRate,
+                AudioConfig.CHANNEL_CONFIG,
+                AudioConfig.AUDIO_FORMAT,
+                bufferSize,
             )
             if (record.state == AudioRecord.STATE_INITIALIZED) {
                 record
@@ -107,12 +177,36 @@ class AudioCaptureManager @Inject constructor() {
                 null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "AudioRecord creation failed for source $audioSource", e)
+            Log.e(TAG, "AudioRecord creation failed for source=$audioSource rate=$sampleRate", e)
             null
         }
     }
 
+    private fun isSilent(buffer: ShortArray, length: Int): Boolean {
+        var sum = 0L
+        for (i in 0 until length) {
+            sum += abs(buffer[i].toInt())
+        }
+        val avgAmplitude = sum / length
+        return avgAmplitude < SILENCE_AMPLITUDE_THRESHOLD
+    }
+
     companion object {
         private const val TAG = "AudioCaptureManager"
+        private const val SILENCE_AMPLITUDE_THRESHOLD = 50
+        private const val DISCARD_AFTER_SWITCH_MS = 500L
+
+        fun frameSamplesForRate(sampleRate: Int): Int =
+            sampleRate * AudioConfig.FRAME_SIZE_MS / 1000
+
+        fun audioSourceInt(source: AudioSource): Int = when (source) {
+            AudioSource.VOICE_COMMUNICATION -> AudioConfig.PRIMARY_AUDIO_SOURCE
+            AudioSource.VOICE_RECOGNITION -> AudioConfig.FALLBACK_AUDIO_SOURCE
+        }
+
+        private fun silenceFrameCount(sampleRate: Int): Int {
+            val frameDurationMs = AudioConfig.FRAME_SIZE_MS
+            return 2000 / frameDurationMs
+        }
     }
 }
