@@ -18,7 +18,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <service
-            android:name=".service.ListeningService"
+            android:name=".service.RecordingForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone|location" />
 
