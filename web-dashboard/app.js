@@ -46,9 +46,6 @@
     // --------------- DOM refs ---------------
     var loginScreen = document.getElementById("login-screen");
     var dashboardScreen = document.getElementById("dashboard-screen");
-    var loginForm = document.getElementById("login-form");
-    var emailInput = document.getElementById("email");
-    var passwordInput = document.getElementById("password");
     var loginError = document.getElementById("login-error");
     var userEmailSpan = document.getElementById("user-email");
     var logoutBtn = document.getElementById("logout-btn");
