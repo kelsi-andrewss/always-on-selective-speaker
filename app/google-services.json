@@ -1,22 +1,28 @@
 {
   "project_info": {
-    "project_number": "REPLACE_ME",
-    "project_id": "REPLACE_ME",
-    "storage_bucket": "REPLACE_ME.appspot.com"
+    "project_number": "742529576115",
+    "project_id": "selective-speaker-demo",
+    "storage_bucket": "selective-speaker-demo.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "mobilesdk_app_id": "1:742529576115:android:4b655a09bbe7f704d6d4c6",
         "android_client_info": {
           "package_name": "com.frontieraudio.app"
         }
       },
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "REPLACE_ME"
+          "current_key": "AIzaSyA0rZ8cLyjUevRtiiJJnDrs_LAeB_8WDxU"
         }
-      ]
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

@@ -4,12 +4,12 @@
     // --------------- Firebase Config ---------------
     // Replace these values with your actual Firebase project config.
     var firebaseConfig = {
-        apiKey: "YOUR_API_KEY",
-        authDomain: "YOUR_PROJECT.firebaseapp.com",
-        projectId: "YOUR_PROJECT_ID",
-        storageBucket: "YOUR_PROJECT.appspot.com",
-        messagingSenderId: "000000000000",
-        appId: "1:000000000000:web:0000000000000000"
+        apiKey: "AIzaSyB8yR8BFV_aCEIavdVGXDBvEce61GzQWVM",
+        authDomain: "selective-speaker-demo.firebaseapp.com",
+        projectId: "selective-speaker-demo",
+        storageBucket: "selective-speaker-demo.firebasestorage.app",
+        messagingSenderId: "742529576115",
+        appId: "1:742529576115:web:1e3d1a9fe8d4cae6d6d4c6"
     };
 
     // --------------- Firebase SDK (compat CDN) ---------------
@@ -77,7 +77,7 @@
             }
         });
 
-        loginForm.addEventListener("submit", handleLogin);
+        document.getElementById("google-login-btn").addEventListener("click", handleGoogleLogin);
         logoutBtn.addEventListener("click", handleLogout);
         filterBtn.addEventListener("click", function () { loadTranscripts(); });
         clearFilterBtn.addEventListener("click", function () {
@@ -88,12 +88,10 @@
     }
 
     // --------------- Auth ---------------
-    function handleLogin(e) {
-        e.preventDefault();
+    function handleGoogleLogin() {
         loginError.hidden = true;
-        var email = emailInput.value.trim();
-        var pw = passwordInput.value;
-        auth.signInWithEmailAndPassword(email, pw).catch(function (err) {
+        var provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(function (err) {
             loginError.textContent = friendlyAuthError(err.code);
             loginError.hidden = false;
         });

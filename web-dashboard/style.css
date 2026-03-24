@@ -273,3 +273,25 @@ header {
 .gps-link:hover {
     text-decoration: underline;
 }
+
+/* Google Sign-In Button */
+.google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 24px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+.google-btn:hover {
+    background: var(--color-bg);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
