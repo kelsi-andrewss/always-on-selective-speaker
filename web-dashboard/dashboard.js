@@ -41,6 +41,7 @@
     // --------------- DOM refs ---------------
     var loginScreen = document.getElementById("login-screen");
     var dashboardScreen = document.getElementById("dashboard-screen");
+    var setupScreen = document.getElementById("setup-screen");
     var loginError = document.getElementById("login-error");
     var userEmailSpan = document.getElementById("user-email");
     var logoutBtn = document.getElementById("logout-btn");
@@ -50,10 +51,27 @@
     var filterBtn = document.getElementById("filter-btn");
     var clearFilterBtn = document.getElementById("clear-filter-btn");
 
+    // Setup screen refs
+    var setupUserEmail = document.getElementById("setup-user-email");
+    var createOrgName = document.getElementById("create-org-name");
+    var createOrgBtn = document.getElementById("create-org-btn");
+    var joinInviteCode = document.getElementById("join-invite-code");
+    var joinOrgBtn = document.getElementById("join-org-btn");
+    var setupError = document.getElementById("setup-error");
+    var setupLoading = document.getElementById("setup-loading");
+    var orgLabel = document.getElementById("org-label");
+    var orgLabelText = document.getElementById("org-label-text");
+
     var db = null;
     var auth = null;
     var refreshTimer = null;
     var REFRESH_INTERVAL_MS = 30000;
+
+    // --------------- Org State ---------------
+    var currentOrgId = null;
+    var currentUserRole = null;
+    var assignedOfficers = [];
+    var currentOrgName = null;
 
     // --------------- Boot ---------------
     function boot() {
@@ -63,7 +81,17 @@
 
         auth.onAuthStateChanged(function (user) {
             if (user) {
-                showDashboard(user);
+                resolveOrgMembership(user.uid).then(function (membership) {
+                    if (membership) {
+                        setOrgContext(membership.orgId, membership.role, membership.assignedOfficers, membership.orgName);
+                        showDashboard(user);
+                    } else {
+                        showSetupScreen(user);
+                    }
+                }).catch(function (err) {
+                    console.error("Failed to resolve org membership", err);
+                    showSetupScreen(user);
+                });
             } else {
                 showLogin();
             }
@@ -77,6 +105,7 @@
             filterEnd.value = "";
             loadTranscripts();
         });
+        initSetupScreen();
         initTestPanel();
         initRecordPanel();
     }
@@ -93,6 +122,11 @@
     }
 
     function handleLogout() {
+        currentOrgId = null;
+        currentUserRole = null;
+        assignedOfficers = [];
+        currentOrgName = null;
+        orgLabel.hidden = true;
         auth.signOut();
     }
 
@@ -112,16 +146,189 @@
     // --------------- Screen switching ---------------
     function showLogin() {
         loginScreen.hidden = false;
+        setupScreen.hidden = true;
         dashboardScreen.hidden = true;
+        stopAutoRefresh();
+    }
+
+    function showSetupScreen(user) {
+        loginScreen.hidden = true;
+        setupScreen.hidden = false;
+        dashboardScreen.hidden = true;
+        setupUserEmail.textContent = user.email;
+        setupError.hidden = true;
+        setupLoading.hidden = true;
         stopAutoRefresh();
     }
 
     function showDashboard(user) {
         loginScreen.hidden = true;
+        setupScreen.hidden = true;
         dashboardScreen.hidden = false;
         userEmailSpan.textContent = user.email;
         loadTranscripts();
         startAutoRefresh();
+    }
+
+    // --------------- Org Membership ---------------
+    function resolveOrgMembership(uid) {
+        return db.collectionGroup("members")
+            .where("uid", "==", uid)
+            .limit(1)
+            .get()
+            .then(function (snapshot) {
+                if (snapshot.empty) return null;
+                var doc = snapshot.docs[0];
+                var data = doc.data();
+                var orgId = doc.ref.parent.parent.id;
+                return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
+                    var orgName = orgDoc.exists ? orgDoc.data().name : orgId;
+                    return {
+                        orgId: orgId,
+                        role: data.role,
+                        assignedOfficers: data.assignedOfficers || [],
+                        orgName: orgName
+                    };
+                });
+            });
+    }
+
+    function setOrgContext(orgId, role, officers, orgName) {
+        currentOrgId = orgId;
+        currentUserRole = role;
+        assignedOfficers = officers || [];
+        currentOrgName = orgName || orgId;
+        orgLabelText.textContent = currentOrgName;
+        orgLabel.hidden = false;
+    }
+
+    function handleCreateOrg(orgName) {
+        var user = auth.currentUser;
+        var orgRef = db.collection("orgs").doc();
+        var orgId = orgRef.id;
+        var batch = db.batch();
+        batch.set(orgRef, {
+            name: orgName,
+            createdBy: user.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
+            uid: user.uid,
+            email: user.email,
+            role: "admin",
+            joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return batch.commit().then(function () {
+            return orgId;
+        });
+    }
+
+    function handleJoinOrg(inviteCode) {
+        var user = auth.currentUser;
+        return db.collectionGroup("invites")
+            .where("code", "==", inviteCode)
+            .where("used", "==", false)
+            .limit(1)
+            .get()
+            .then(function (snapshot) {
+                if (snapshot.empty) {
+                    throw new Error("Invalid or expired invite code.");
+                }
+                var inviteDoc = snapshot.docs[0];
+                var inviteData = inviteDoc.data();
+                var orgId = inviteDoc.ref.parent.parent.id;
+                var role = inviteData.role || "officer";
+
+                var batch = db.batch();
+                batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
+                    uid: user.uid,
+                    email: user.email,
+                    role: role,
+                    assignedOfficers: inviteData.assignedOfficers || [],
+                    joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                batch.update(inviteDoc.ref, {
+                    used: true,
+                    usedBy: user.uid,
+                    usedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                return batch.commit().then(function () {
+                    return { orgId: orgId, role: role, assignedOfficers: inviteData.assignedOfficers || [] };
+                });
+            });
+    }
+
+    function transcriptsPath() {
+        return "transcripts";
+    }
+
+    function initSetupScreen() {
+        // Tab switching
+        var tabs = setupScreen.querySelectorAll(".setup-tab");
+        var tabContents = setupScreen.querySelectorAll(".setup-tab-content");
+        tabs.forEach(function (tab) {
+            tab.addEventListener("click", function () {
+                tabs.forEach(function (t) { t.classList.remove("active"); });
+                tabContents.forEach(function (tc) { tc.classList.remove("active"); });
+                tab.classList.add("active");
+                var targetId = tab.getAttribute("data-tab") === "create" ? "create-org-form" : "join-org-form";
+                document.getElementById(targetId).classList.add("active");
+                setupError.hidden = true;
+            });
+        });
+
+        // Create org
+        createOrgBtn.addEventListener("click", function () {
+            var name = createOrgName.value.trim();
+            if (!name) {
+                setupError.textContent = "Please enter an organization name.";
+                setupError.hidden = false;
+                return;
+            }
+            setupError.hidden = true;
+            setupLoading.hidden = false;
+            createOrgBtn.disabled = true;
+
+            handleCreateOrg(name).then(function (orgId) {
+                setOrgContext(orgId, "admin", [], name);
+                showDashboard(auth.currentUser);
+            }).catch(function (err) {
+                setupError.textContent = err.message || "Failed to create organization.";
+                setupError.hidden = false;
+            }).finally(function () {
+                setupLoading.hidden = true;
+                createOrgBtn.disabled = false;
+            });
+        });
+
+        // Join org
+        joinOrgBtn.addEventListener("click", function () {
+            var code = joinInviteCode.value.trim();
+            if (!code) {
+                setupError.textContent = "Please enter an invite code.";
+                setupError.hidden = false;
+                return;
+            }
+            setupError.hidden = true;
+            setupLoading.hidden = false;
+            joinOrgBtn.disabled = true;
+
+            handleJoinOrg(code).then(function (result) {
+                return db.collection("orgs").doc(result.orgId).get().then(function (orgDoc) {
+                    var orgName = orgDoc.exists ? orgDoc.data().name : result.orgId;
+                    setOrgContext(result.orgId, result.role, result.assignedOfficers, orgName);
+                    showDashboard(auth.currentUser);
+                });
+            }).catch(function (err) {
+                setupError.textContent = err.message || "Failed to join organization.";
+                setupError.hidden = false;
+            }).finally(function () {
+                setupLoading.hidden = true;
+                joinOrgBtn.disabled = false;
+            });
+        });
+
+        if (window.lucide) lucide.createIcons();
     }
 
     // --------------- Auto-refresh ---------------
@@ -141,7 +348,11 @@
 
     // --------------- Data loading ---------------
     function loadTranscripts() {
-        var query = db.collection("transcripts").orderBy("timestamp", "desc").limit(500);
+        var query = db.collection(transcriptsPath()).orderBy("timestamp", "desc").limit(500);
+
+        if (currentOrgId) {
+            query = query.where("orgId", "==", currentOrgId);
+        }
 
         var startDate = filterStart.value;
         var endDate = filterEnd.value;
@@ -443,7 +654,13 @@
 
     function pushTranscript(data) {
         if (!db) return Promise.reject("Firestore not initialized");
-        return db.collection("transcripts").add(data);
+        if (currentOrgId) {
+            data.orgId = currentOrgId;
+        }
+        if (auth.currentUser) {
+            data.recordedBy = auth.currentUser.uid;
+        }
+        return db.collection(transcriptsPath()).add(data);
     }
 
     function initTestPanel() {
@@ -522,7 +739,7 @@
         var statusEl = document.getElementById("test-status");
         if (!confirm("Delete ALL transcripts from Firestore? This cannot be undone.")) return;
         statusEl.textContent = "Deleting all transcripts...";
-        db.collection("transcripts").get().then(function (snapshot) {
+        db.collection(transcriptsPath()).get().then(function (snapshot) {
             var batch = db.batch();
             snapshot.docs.forEach(function (doc) { batch.delete(doc.ref); });
             return batch.commit();
@@ -870,13 +1087,15 @@
                         sessionId: getRecordSessionId(),
                         userId: auth.currentUser ? auth.currentUser.uid : "web-recorder"
                     };
+                    if (currentOrgId) doc.orgId = currentOrgId;
+                    if (auth.currentUser) doc.recordedBy = auth.currentUser.uid;
                     if (result.words) doc.words = result.words;
                     if (currentGps) {
                         doc.latitude = currentGps.latitude;
                         doc.longitude = currentGps.longitude;
                         doc.accuracy = currentGps.accuracy;
                     }
-                    db.collection("transcripts").add(doc).then(function () {
+                    db.collection(transcriptsPath()).add(doc).then(function () {
                         logEvent("Saved chunk #" + chunkNum + " to Firestore");
                         loadTranscripts();
                     }).catch(function (err) {

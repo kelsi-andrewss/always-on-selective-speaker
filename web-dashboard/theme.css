@@ -1078,3 +1078,123 @@ body {
     transform: rotate(45deg);
     top: 18px;
 }
+
+/* ---- Setup Screen ---- */
+
+#setup-screen {
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+}
+
+.setup-tabs {
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    border-bottom: 1px solid var(--border-strong);
+    margin-bottom: 32px;
+}
+
+.setup-tab {
+    flex: 1;
+    padding: 12px 0;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: var(--transition-fast);
+    font-family: inherit;
+}
+
+.setup-tab:hover {
+    color: var(--text-primary);
+}
+
+.setup-tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
+}
+
+.setup-tab-content {
+    display: none;
+    text-align: left;
+}
+
+.setup-tab-content.active {
+    display: block;
+}
+
+.setup-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 20px;
+}
+
+.setup-field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.setup-field input {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.setup-field input:focus {
+    border-color: var(--primary);
+}
+
+.setup-btn {
+    width: 100%;
+    padding: 14px 24px;
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border: 1px solid var(--text-primary);
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    font-family: inherit;
+}
+
+.setup-btn:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.setup-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.setup-email {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-bottom: 24px;
+}
+
+#org-label {
+    font-weight: 400;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.org-separator {
+    color: var(--text-tertiary);
+    margin: 0 2px;
+}
