@@ -392,44 +392,53 @@
 
     } // end initTestPanel
 
-    // --------------- Record Panel ---------------
+    // --------------- Record Panel (Always-On Chunked Pipeline) ---------------
     function initRecordPanel() {
         var recordPanel = document.getElementById("record-panel");
-        var startBtn = document.getElementById("record-start-btn");
-        var stopBtn = document.getElementById("record-stop-btn");
-        var statusEl = document.getElementById("record-status");
+        var goLiveBtn = document.getElementById("go-live-btn");
+        var goStopBtn = document.getElementById("go-stop-btn");
+        var vadStatusEl = document.getElementById("vad-status");
         var gpsDisplay = document.getElementById("record-gps-display");
-        var previewEl = document.getElementById("transcript-preview");
-        var previewText = previewEl.querySelector(".transcript-preview-text");
-        var saveBtn = document.getElementById("save-transcript-btn");
-        var modeBrowserBtn = document.getElementById("record-mode-browser");
-        var modeCloudBtn = document.getElementById("record-mode-cloud");
-        var apiKeyInput = document.getElementById("api-key-input");
-        var settingsPanel = document.getElementById("record-settings");
-        var settingsBtn = document.getElementById("record-settings-btn");
+        var chunkStatsEl = document.getElementById("chunk-stats");
+        var eventLogEl = document.getElementById("event-log");
+        var sensitivitySlider = document.getElementById("sensitivity-slider");
+        var sensitivityValue = document.getElementById("sensitivity-value");
         var meterFill = document.querySelector("#audio-level-meter .audio-level-fill");
 
-        var currentMode = "browser"; // "browser" | "cloud"
+        var ASSEMBLYAI_KEY = "75b10e24655f44b5bba36598b4351c23";
+
         var audioContext = null;
         var analyserNode = null;
         var micStream = null;
+        var scriptNode = null;
+        var micSource = null;
         var meterRaf = null;
-        var mediaRecorder = null;
-        var recordedChunks = [];
-        var speechRecognition = null;
-        var currentTranscript = "";
-        var interimTranscript = "";
+        var vadInterval = null;
+        var isLive = false;
+
+        // VAD state
+        var vadThreshold = 0.015;
+        var speechActive = false;
+        var speechStartTime = 0;
+        var silenceStartTime = 0;
+        var SPEECH_ONSET_MS = 300;
+        var SPEECH_OFFSET_MS = 800;
+        var MAX_CHUNK_S = 30;
+        var MIN_CHUNK_S = 1;
+        var energyAboveThreshold = false;
+        var energyAboveStartTime = 0;
+
+        // Chunk recording state
+        var chunkSamples = [];
+        var chunkStartedAt = 0;
+
+        // Stats
+        var totalChunks = 0;
+        var transcribedChunks = 0;
+        var pendingChunks = 0;
+
         var currentGps = null;
         var recordSessionId = null;
-        var wordsData = null;
-
-        // Restore API key from localStorage
-        var storedKey = localStorage.getItem("assemblyai_api_key");
-        if (storedKey) apiKeyInput.value = storedKey;
-
-        apiKeyInput.addEventListener("change", function () {
-            localStorage.setItem("assemblyai_api_key", apiKeyInput.value.trim());
-        });
 
         // Toggle panel
         document.getElementById("toggle-record-btn").addEventListener("click", function () {
@@ -440,34 +449,34 @@
             recordPanel.hidden = true;
         });
 
-        // Settings toggle
-        settingsBtn.addEventListener("click", function () {
-            settingsPanel.hidden = !settingsPanel.hidden;
+        // Sensitivity slider
+        sensitivitySlider.addEventListener("input", function () {
+            vadThreshold = parseFloat(sensitivitySlider.value);
+            sensitivityValue.textContent = vadThreshold.toFixed(3);
         });
 
-        // Mode toggle
-        modeBrowserBtn.addEventListener("click", function () {
-            currentMode = "browser";
-            modeBrowserBtn.classList.add("active");
-            modeCloudBtn.classList.remove("active");
-            settingsPanel.hidden = true;
-        });
-        modeCloudBtn.addEventListener("click", function () {
-            currentMode = "cloud";
-            modeCloudBtn.classList.add("active");
-            modeBrowserBtn.classList.remove("active");
-            // Show settings so user can enter key
-            settingsPanel.hidden = false;
-        });
+        // ----------- Event Log -----------
+        function logEvent(msg) {
+            var line = document.createElement("div");
+            line.className = "event-log-line";
+            var now = new Date();
+            var ts = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            line.textContent = "[" + ts + "] " + msg;
+            eventLogEl.appendChild(line);
+            eventLogEl.scrollTop = eventLogEl.scrollHeight;
+            // Keep max 50 entries
+            while (eventLogEl.children.length > 50) {
+                eventLogEl.removeChild(eventLogEl.firstChild);
+            }
+        }
+
+        // ----------- Stats -----------
+        function updateStats() {
+            chunkStatsEl.textContent = "Chunks: " + totalChunks + " | Transcribed: " + transcribedChunks + " | Pending: " + pendingChunks;
+        }
 
         // ----------- Audio Level Meter -----------
-        function startMeter(stream) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            var source = audioContext.createMediaStreamSource(stream);
-            analyserNode = audioContext.createAnalyser();
-            analyserNode.fftSize = 256;
-            source.connect(analyserNode);
-
+        function startMeter() {
             var dataArray = new Uint8Array(analyserNode.frequencyBinCount);
             function tick() {
                 analyserNode.getByteFrequencyData(dataArray);
@@ -484,7 +493,6 @@
         function stopMeter() {
             if (meterRaf) { cancelAnimationFrame(meterRaf); meterRaf = null; }
             meterFill.style.width = "0%";
-            if (audioContext) { audioContext.close(); audioContext = null; }
         }
 
         // ----------- GPS -----------
@@ -501,7 +509,8 @@
                         longitude: pos.coords.longitude,
                         accuracy: pos.coords.accuracy
                     };
-                    gpsDisplay.textContent = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6) + " (±" + Math.round(pos.coords.accuracy) + "m)";
+                    gpsDisplay.textContent = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6) + " (\u00b1" + Math.round(pos.coords.accuracy) + "m)";
+                    logEvent("GPS acquired: " + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4));
                 },
                 function (err) {
                     gpsDisplay.textContent = "GPS error: " + err.message;
@@ -529,7 +538,7 @@
             writeString(8, "WAVE");
             writeString(12, "fmt ");
             view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true); // PCM
+            view.setUint16(20, 1, true);
             view.setUint16(22, numChannels, true);
             view.setUint32(24, sampleRate, true);
             view.setUint32(28, byteRate, true);
@@ -538,128 +547,22 @@
             writeString(36, "data");
             view.setUint32(40, dataLength, true);
 
-            var offset = 44;
+            var off = 44;
             for (var i = 0; i < samples.length; i++) {
                 var s = Math.max(-1, Math.min(1, samples[i]));
-                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-                offset += 2;
+                view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                off += 2;
             }
 
             return new Blob([view], { type: "audio/wav" });
         }
 
-        // ----------- Browser STT (Web Speech API) -----------
-        function startBrowserSTT() {
-            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                statusEl.textContent = "Web Speech API not supported in this browser. Try Chrome.";
-                return false;
-            }
-
-            speechRecognition = new SpeechRecognition();
-            speechRecognition.continuous = true;
-            speechRecognition.interimResults = true;
-            speechRecognition.lang = "en-US";
-
-            currentTranscript = "";
-            interimTranscript = "";
-
-            speechRecognition.onresult = function (event) {
-                var final = "";
-                var interim = "";
-                for (var i = 0; i < event.results.length; i++) {
-                    if (event.results[i].isFinal) {
-                        final += event.results[i][0].transcript;
-                    } else {
-                        interim += event.results[i][0].transcript;
-                    }
-                }
-                currentTranscript = final;
-                interimTranscript = interim;
-
-                previewEl.hidden = false;
-                previewText.textContent = currentTranscript + (interimTranscript ? " " + interimTranscript : "");
-            };
-
-            speechRecognition.onerror = function (event) {
-                if (event.error !== "no-speech") {
-                    statusEl.textContent = "Speech error: " + event.error;
-                }
-            };
-
-            speechRecognition.onend = function () {
-                // Auto-restart if still recording (browser may stop it)
-                if (!stopBtn.hidden) {
-                    try { speechRecognition.start(); } catch (e) { /* already started */ }
-                }
-            };
-
-            speechRecognition.start();
-            return true;
-        }
-
-        function stopBrowserSTT() {
-            if (speechRecognition) {
-                speechRecognition.onend = null; // prevent auto-restart
-                speechRecognition.stop();
-                speechRecognition = null;
-            }
-        }
-
-        // ----------- Cloud STT (AssemblyAI) -----------
-        function startCloudRecording(stream) {
-            recordedChunks = [];
-            // Use a ScriptProcessor to capture raw PCM for WAV encoding
-            var scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-            var source = audioContext.createMediaStreamSource(stream);
-            source.connect(scriptNode);
-            scriptNode.connect(audioContext.destination);
-
-            var allSamples = [];
-            scriptNode.onaudioprocess = function (e) {
-                var channelData = e.inputBuffer.getChannelData(0);
-                allSamples.push(new Float32Array(channelData));
-            };
-
-            // Store refs for cleanup
-            mediaRecorder = { scriptNode: scriptNode, source: source, allSamples: allSamples };
-        }
-
-        function stopCloudRecording() {
-            return new Promise(function (resolve, reject) {
-                if (!mediaRecorder) { reject(new Error("No recording")); return; }
-
-                var allSamples = mediaRecorder.allSamples;
-                mediaRecorder.scriptNode.disconnect();
-                mediaRecorder.source.disconnect();
-
-                // Concatenate all sample buffers
-                var totalLength = 0;
-                for (var i = 0; i < allSamples.length; i++) totalLength += allSamples[i].length;
-                var merged = new Float32Array(totalLength);
-                var offset = 0;
-                for (var i = 0; i < allSamples.length; i++) {
-                    merged.set(allSamples[i], offset);
-                    offset += allSamples[i].length;
-                }
-
-                var sampleRate = audioContext ? audioContext.sampleRate : 16000;
-                var wavBlob = encodeWAV(merged, sampleRate);
-                mediaRecorder = null;
-                resolve(wavBlob);
-            });
-        }
-
+        // ----------- AssemblyAI -----------
         function uploadToAssemblyAI(wavBlob) {
-            var apiKey = apiKeyInput.value.trim();
-            if (!apiKey) return Promise.reject(new Error("No API key. Open settings and paste your AssemblyAI key."));
-
-            statusEl.textContent = "Uploading audio...";
-
             return fetch("https://api.assemblyai.com/v2/upload", {
                 method: "POST",
                 headers: {
-                    "Authorization": apiKey,
+                    "Authorization": ASSEMBLYAI_KEY,
                     "Content-Type": "application/octet-stream"
                 },
                 body: wavBlob
@@ -669,14 +572,13 @@
                 return resp.json();
             })
             .then(function (data) {
-                statusEl.textContent = "Transcribing...";
                 return fetch("https://api.assemblyai.com/v2/transcript", {
                     method: "POST",
                     headers: {
-                        "Authorization": apiKey,
+                        "Authorization": ASSEMBLYAI_KEY,
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ audio_url: data.upload_url, language_code: "en" })
+                    body: JSON.stringify({ audio_url: data.upload_url, speech_models: ["universal-3-pro"] })
                 });
             })
             .then(function (resp) {
@@ -684,15 +586,15 @@
                 return resp.json();
             })
             .then(function (data) {
-                return pollTranscript(data.id, apiKey);
+                return pollTranscript(data.id);
             });
         }
 
-        function pollTranscript(transcriptId, apiKey) {
+        function pollTranscript(transcriptId) {
             return new Promise(function (resolve, reject) {
                 function check() {
                     fetch("https://api.assemblyai.com/v2/transcript/" + transcriptId, {
-                        headers: { "Authorization": apiKey }
+                        headers: { "Authorization": ASSEMBLYAI_KEY }
                     })
                     .then(function (resp) { return resp.json(); })
                     .then(function (data) {
@@ -701,7 +603,6 @@
                         } else if (data.status === "error") {
                             reject(new Error("Transcription error: " + (data.error || "unknown")));
                         } else {
-                            statusEl.textContent = "Transcribing... (" + data.status + ")";
                             setTimeout(check, 3000);
                         }
                     })
@@ -719,121 +620,233 @@
             return recordSessionId;
         }
 
-        // ----------- Start / Stop -----------
-        startBtn.addEventListener("click", function () {
-            currentTranscript = "";
-            interimTranscript = "";
-            wordsData = null;
-            previewEl.hidden = true;
-            previewText.textContent = "";
-            saveBtn.hidden = true;
-            statusEl.textContent = "Requesting microphone...";
+        // ----------- VAD (Energy-based) -----------
+        function computeRMS() {
+            var dataArray = new Float32Array(analyserNode.fftSize);
+            analyserNode.getFloatTimeDomainData(dataArray);
+            var sum = 0;
+            for (var i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            return Math.sqrt(sum / dataArray.length);
+        }
+
+        function vadTick() {
+            if (!isLive || !analyserNode) return;
+
+            var rms = computeRMS();
+            var now = Date.now();
+
+            if (rms >= vadThreshold) {
+                if (!energyAboveThreshold) {
+                    energyAboveThreshold = true;
+                    energyAboveStartTime = now;
+                }
+                silenceStartTime = 0;
+
+                // Speech onset: energy above threshold for SPEECH_ONSET_MS
+                if (!speechActive && (now - energyAboveStartTime >= SPEECH_ONSET_MS)) {
+                    speechActive = true;
+                    chunkStartedAt = now;
+                    chunkSamples = [];
+                    vadStatusEl.textContent = "Speech detected...";
+                    vadStatusEl.classList.add("vad-speech");
+                    logEvent("Speech detected");
+                }
+            } else {
+                energyAboveThreshold = false;
+                energyAboveStartTime = 0;
+
+                if (speechActive) {
+                    if (!silenceStartTime) {
+                        silenceStartTime = now;
+                    }
+                    // Speech offset: energy below threshold for SPEECH_OFFSET_MS
+                    if (now - silenceStartTime >= SPEECH_OFFSET_MS) {
+                        finalizeChunk("silence");
+                    }
+                }
+            }
+
+            // Force-split at MAX_CHUNK_S
+            if (speechActive && (now - chunkStartedAt >= MAX_CHUNK_S * 1000)) {
+                finalizeChunk("max-duration");
+            }
+        }
+
+        function finalizeChunk(reason) {
+            speechActive = false;
+            silenceStartTime = 0;
+            energyAboveThreshold = false;
+            energyAboveStartTime = 0;
+            vadStatusEl.textContent = "Processing chunk...";
+            vadStatusEl.classList.remove("vad-speech");
+
+            var duration = (Date.now() - chunkStartedAt) / 1000;
+            var samples = flattenSamples(chunkSamples);
+            chunkSamples = [];
+
+            if (duration < MIN_CHUNK_S || samples.length === 0) {
+                vadStatusEl.textContent = "Listening...";
+                logEvent("Chunk discarded (too short: " + duration.toFixed(1) + "s)");
+                return;
+            }
+
+            totalChunks++;
+            pendingChunks++;
+            updateStats();
+            logEvent("Chunk #" + totalChunks + " (" + duration.toFixed(1) + "s, " + reason + ")");
+
+            var sampleRate = audioContext ? audioContext.sampleRate : 16000;
+            var wavBlob = encodeWAV(samples, sampleRate);
+            var chunkNum = totalChunks;
+
+            logEvent("Uploading chunk #" + chunkNum + "...");
+
+            uploadToAssemblyAI(wavBlob)
+                .then(function (result) {
+                    var text = result.text || "";
+                    pendingChunks--;
+                    transcribedChunks++;
+                    updateStats();
+
+                    if (!text.trim()) {
+                        logEvent("Chunk #" + chunkNum + ": (no speech)");
+                        return;
+                    }
+
+                    var preview = text.length > 50 ? text.substring(0, 50) + "..." : text;
+                    logEvent("Transcript #" + chunkNum + ": " + preview);
+
+                    // Write to Firestore
+                    var doc = {
+                        text: text.trim(),
+                        timestamp: Date.now(),
+                        sessionId: getRecordSessionId(),
+                        userId: auth.currentUser ? auth.currentUser.uid : "web-recorder"
+                    };
+                    if (result.words) doc.words = result.words;
+                    if (currentGps) {
+                        doc.latitude = currentGps.latitude;
+                        doc.longitude = currentGps.longitude;
+                        doc.accuracy = currentGps.accuracy;
+                    }
+                    db.collection("transcripts").add(doc).then(function () {
+                        logEvent("Saved chunk #" + chunkNum + " to Firestore");
+                        loadTranscripts();
+                    }).catch(function (err) {
+                        logEvent("Firestore error: " + err.message);
+                    });
+                })
+                .catch(function (err) {
+                    pendingChunks--;
+                    updateStats();
+                    logEvent("Error chunk #" + chunkNum + ": " + err.message);
+                });
+
+            // Resume listening immediately
+            if (isLive) {
+                vadStatusEl.textContent = "Listening...";
+            }
+        }
+
+        function flattenSamples(buffers) {
+            var totalLength = 0;
+            for (var i = 0; i < buffers.length; i++) totalLength += buffers[i].length;
+            var merged = new Float32Array(totalLength);
+            var offset = 0;
+            for (var i = 0; i < buffers.length; i++) {
+                merged.set(buffers[i], offset);
+                offset += buffers[i].length;
+            }
+            return merged;
+        }
+
+        // ----------- Audio Capture (ScriptProcessor for raw PCM) -----------
+        function startAudioCapture(stream) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            micSource = audioContext.createMediaStreamSource(stream);
+
+            analyserNode = audioContext.createAnalyser();
+            analyserNode.fftSize = 2048;
+            micSource.connect(analyserNode);
+
+            scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+            micSource.connect(scriptNode);
+            scriptNode.connect(audioContext.destination);
+
+            scriptNode.onaudioprocess = function (e) {
+                if (speechActive) {
+                    var channelData = e.inputBuffer.getChannelData(0);
+                    chunkSamples.push(new Float32Array(channelData));
+                }
+            };
+        }
+
+        function stopAudioCapture() {
+            if (scriptNode) { scriptNode.disconnect(); scriptNode = null; }
+            if (micSource) { micSource.disconnect(); micSource = null; }
+            if (audioContext) { audioContext.close(); audioContext = null; }
+            analyserNode = null;
+        }
+
+        // ----------- Go Live / Stop -----------
+        goLiveBtn.addEventListener("click", function () {
+            vadStatusEl.textContent = "Requesting microphone...";
+            recordSessionId = null;
+            totalChunks = 0;
+            transcribedChunks = 0;
+            pendingChunks = 0;
+            updateStats();
+            eventLogEl.innerHTML = "";
 
             var constraints = { audio: { channelCount: 1, sampleRate: { ideal: 16000 } } };
 
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(function (stream) {
                     micStream = stream;
-                    startMeter(stream);
+                    isLive = true;
+                    startAudioCapture(stream);
+                    startMeter();
                     fetchGps();
-                    statusEl.textContent = "Recording...";
-                    startBtn.hidden = true;
-                    stopBtn.hidden = false;
-                    recordPanel.classList.add("is-recording");
 
-                    if (currentMode === "browser") {
-                        startBrowserSTT();
-                    } else {
-                        startCloudRecording(stream);
-                    }
+                    // Start VAD polling every 50ms
+                    vadInterval = setInterval(vadTick, 50);
+
+                    vadStatusEl.textContent = "Listening...";
+                    goLiveBtn.hidden = true;
+                    goStopBtn.hidden = false;
+                    recordPanel.classList.add("is-recording");
+                    logEvent("Live capture started");
                 })
                 .catch(function (err) {
-                    statusEl.textContent = "Microphone error: " + err.message;
+                    vadStatusEl.textContent = "Microphone error: " + err.message;
                 });
         });
 
-        stopBtn.addEventListener("click", function () {
-            stopBtn.hidden = true;
-            startBtn.hidden = false;
-            recordPanel.classList.remove("is-recording");
+        goStopBtn.addEventListener("click", function () {
+            isLive = false;
 
-            if (currentMode === "browser") {
-                stopBrowserSTT();
-                // Stop mic and meter after a small delay to let final results come in
-                setTimeout(function () {
-                    stopMicAndMeter();
-                    if (currentTranscript.trim()) {
-                        statusEl.textContent = "Done! Review transcript and save.";
-                        saveBtn.hidden = false;
-                    } else {
-                        statusEl.textContent = "No speech detected.";
-                    }
-                }, 500);
-            } else {
-                statusEl.textContent = "Processing audio...";
-                stopCloudRecording()
-                    .then(function (wavBlob) {
-                        stopMicAndMeter();
-                        return uploadToAssemblyAI(wavBlob);
-                    })
-                    .then(function (result) {
-                        currentTranscript = result.text || "";
-                        wordsData = result.words || null;
-                        previewEl.hidden = false;
-                        previewText.textContent = currentTranscript;
-                        statusEl.textContent = "Done! Review transcript and save.";
-                        saveBtn.hidden = false;
-                    })
-                    .catch(function (err) {
-                        stopMicAndMeter();
-                        statusEl.textContent = "Error: " + err.message;
-                        // If it looks like CORS, show a helpful note
-                        if (err.message && (err.message.indexOf("Failed to fetch") >= 0 || err.message.indexOf("NetworkError") >= 0)) {
-                            statusEl.textContent += " (Likely CORS blocked. Install a CORS browser extension or use Browser STT mode.)";
-                        }
-                    });
+            // If speech was active, finalize the current chunk
+            if (speechActive) {
+                finalizeChunk("stopped");
             }
-        });
 
-        function stopMicAndMeter() {
+            if (vadInterval) { clearInterval(vadInterval); vadInterval = null; }
             stopMeter();
+            stopAudioCapture();
+
             if (micStream) {
                 micStream.getTracks().forEach(function (t) { t.stop(); });
                 micStream = null;
             }
-        }
 
-        // ----------- Save to Firestore -----------
-        saveBtn.addEventListener("click", function () {
-            if (!currentTranscript.trim()) { statusEl.textContent = "Nothing to save."; return; }
-            if (!db) { statusEl.textContent = "Firestore not initialized."; return; }
-
-            var doc = {
-                text: currentTranscript.trim(),
-                timestamp: Date.now(),
-                sessionId: getRecordSessionId(),
-                userId: auth.currentUser ? auth.currentUser.uid : "web-recorder"
-            };
-
-            if (wordsData) doc.words = wordsData;
-
-            if (currentGps) {
-                doc.latitude = currentGps.latitude;
-                doc.longitude = currentGps.longitude;
-                doc.accuracy = currentGps.accuracy;
-            }
-
-            saveBtn.disabled = true;
-            statusEl.textContent = "Saving...";
-            db.collection("transcripts").add(doc).then(function () {
-                statusEl.textContent = "Saved! Refreshing list...";
-                saveBtn.hidden = true;
-                saveBtn.disabled = false;
-                loadTranscripts();
-            }).catch(function (err) {
-                statusEl.textContent = "Save failed: " + err.message;
-                saveBtn.disabled = false;
-            });
+            goStopBtn.hidden = true;
+            goLiveBtn.hidden = false;
+            recordPanel.classList.remove("is-recording");
+            vadStatusEl.textContent = "Idle";
+            vadStatusEl.classList.remove("vad-speech");
+            logEvent("Live capture stopped");
         });
 
     } // end initRecordPanel

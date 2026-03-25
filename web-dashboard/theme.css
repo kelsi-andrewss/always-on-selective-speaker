@@ -728,7 +728,7 @@ body {
     }
 }
 
-/* ---- Record Panel ---- */
+/* ---- Record Panel (Always-On) ---- */
 .record-nav-btn i {
     width: 16px;
     height: 16px;
@@ -749,8 +749,8 @@ body {
     overflow: hidden;
 }
 .record-panel.is-recording {
-    border-color: var(--error);
-    box-shadow: 0 -4px 40px rgba(239, 68, 68, 0.15);
+    border-color: var(--success);
+    box-shadow: 0 -4px 40px rgba(16, 185, 129, 0.15);
 }
 .record-panel-header {
     display: flex;
@@ -765,16 +765,10 @@ body {
     gap: 8px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--error);
+    color: var(--text-primary);
 }
-.record-header-actions {
-    display: flex;
-    gap: 4px;
-}
-.record-settings {
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-surface);
+.record-panel.is-recording .record-panel-header h3 {
+    color: var(--success);
 }
 .record-panel-body {
     padding: 20px;
@@ -782,36 +776,6 @@ body {
     display: flex;
     flex-direction: column;
     gap: 16px;
-}
-
-/* Mode toggle pills */
-.record-mode-toggle {
-    display: flex;
-    background: var(--bg-surface);
-    border-radius: 8px;
-    padding: 3px;
-    border: 1px solid var(--border-subtle);
-}
-.mode-btn {
-    flex: 1;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    color: var(--text-secondary);
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition-fast);
-}
-.mode-btn.active {
-    background: var(--bg-surface-raised);
-    color: var(--text-primary);
-    box-shadow: var(--shadow-sm);
-}
-.mode-btn:hover:not(.active) {
-    color: var(--text-primary);
 }
 
 /* Audio level meter */
@@ -844,7 +808,7 @@ body {
     font-weight: 500;
 }
 
-/* Record / Stop buttons */
+/* Go Live / Stop buttons */
 .record-controls {
     display: flex;
     justify-content: center;
@@ -869,11 +833,11 @@ body {
     height: 20px;
 }
 .record-btn.start {
-    background: var(--error);
-    color: var(--text-primary);
+    background: var(--success);
+    color: var(--bg-base);
 }
 .record-btn.start:hover {
-    background: #dc2626;
+    background: #059669;
 }
 .record-btn.stop {
     background: var(--bg-surface);
@@ -889,12 +853,79 @@ body {
     50% { border-color: rgba(239, 68, 68, 0.4); }
 }
 
-/* Status */
-.record-status {
+/* VAD Status */
+.vad-status {
     font-size: 13px;
     color: var(--text-secondary);
     min-height: 20px;
     text-align: center;
+    font-weight: 500;
+    transition: color var(--transition-fast);
+}
+.vad-status.vad-speech {
+    color: var(--success);
+}
+
+/* Sensitivity slider */
+.sensitivity-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.sensitivity-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+.sensitivity-container input[type="range"] {
+    flex: 1;
+    height: 4px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-surface);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+.sensitivity-container input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    cursor: pointer;
+}
+.sensitivity-container input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    border: none;
+    cursor: pointer;
+}
+.sensitivity-value {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: monospace;
+    min-width: 42px;
+    text-align: right;
+}
+
+/* Chunk stats */
+.chunk-stats {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 8px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    letter-spacing: 0.01em;
 }
 
 /* GPS display */
@@ -905,38 +936,34 @@ body {
     min-height: 18px;
 }
 
-/* Transcript preview */
-.transcript-preview {
+/* Event log */
+.event-log-container {
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
-.transcript-preview label {
-    font-size: 12px;
+.event-log-label {
+    font-size: 11px;
     font-weight: 500;
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-.transcript-preview-text {
+.event-log {
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 12px;
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--text-primary);
-    max-height: 200px;
+    padding: 10px 12px;
+    max-height: 160px;
     overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-secondary);
 }
-
-/* Save button */
-.save-transcript-btn {
-    width: 100%;
-}
-.save-transcript-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+.event-log-line {
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 @media (max-width: 540px) {

@@ -153,26 +153,21 @@
         <!-- Recording Panel -->
         <div id="record-panel" class="record-panel" hidden>
             <div class="record-panel-header">
-                <h3><i data-lucide="mic"></i> Record Audio</h3>
-                <div class="record-header-actions">
-                    <button id="record-settings-btn" class="icon-btn" title="API Settings"><i data-lucide="settings"></i></button>
-                    <button id="close-record-panel" class="icon-btn" title="Close"><i data-lucide="x"></i></button>
-                </div>
-            </div>
-
-            <!-- API Key Settings (collapsible) -->
-            <div id="record-settings" class="record-settings" hidden>
-                <div class="test-field">
-                    <label>AssemblyAI API Key</label>
-                    <input type="password" id="api-key-input" placeholder="Paste your AssemblyAI key" autocomplete="off">
-                </div>
+                <h3><i data-lucide="mic"></i> Live Capture</h3>
+                <button id="close-record-panel" class="icon-btn" title="Close"><i data-lucide="x"></i></button>
             </div>
 
             <div class="record-panel-body">
-                <!-- Mode Toggle -->
-                <div class="record-mode-toggle">
-                    <button id="record-mode-browser" class="mode-btn active">Browser STT</button>
-                    <button id="record-mode-cloud" class="mode-btn">Cloud STT</button>
+                <!-- Go Live / Stop Toggle -->
+                <div class="record-controls">
+                    <button id="go-live-btn" class="record-btn start">
+                        <i data-lucide="radio"></i>
+                        Go Live
+                    </button>
+                    <button id="go-stop-btn" class="record-btn stop" hidden>
+                        <i data-lucide="square"></i>
+                        Stop
+                    </button>
                 </div>
 
                 <!-- Audio Level Meter -->
@@ -183,35 +178,27 @@
                     <span class="meter-label">Mic Level</span>
                 </div>
 
-                <!-- Record / Stop Buttons -->
-                <div class="record-controls">
-                    <button id="record-start-btn" class="record-btn start">
-                        <i data-lucide="mic"></i>
-                        Start Recording
-                    </button>
-                    <button id="record-stop-btn" class="record-btn stop" hidden>
-                        <i data-lucide="square"></i>
-                        Stop
-                    </button>
+                <!-- VAD Status -->
+                <p id="vad-status" class="vad-status">Idle</p>
+
+                <!-- Mic Sensitivity Slider -->
+                <div class="sensitivity-container">
+                    <label class="sensitivity-label" for="sensitivity-slider">Mic Sensitivity</label>
+                    <input type="range" id="sensitivity-slider" min="0.001" max="0.1" step="0.001" value="0.015">
+                    <span id="sensitivity-value" class="sensitivity-value">0.015</span>
                 </div>
 
-                <!-- Status -->
-                <p id="record-status" class="record-status"></p>
+                <!-- Chunk Stats -->
+                <div id="chunk-stats" class="chunk-stats">Chunks: 0 | Transcribed: 0 | Pending: 0</div>
 
                 <!-- GPS -->
                 <div id="record-gps-display" class="record-gps"></div>
 
-                <!-- Transcript Preview -->
-                <div id="transcript-preview" class="transcript-preview" hidden>
-                    <label>Transcript</label>
-                    <div class="transcript-preview-text"></div>
+                <!-- Event Log -->
+                <div class="event-log-container">
+                    <label class="event-log-label">Event Log</label>
+                    <div id="event-log" class="event-log"></div>
                 </div>
-
-                <!-- Save Button -->
-                <button id="save-transcript-btn" class="primary-btn save-transcript-btn" hidden>
-                    <i data-lucide="save"></i>
-                    Save to Firestore
-                </button>
             </div>
         </div>
     </div>
