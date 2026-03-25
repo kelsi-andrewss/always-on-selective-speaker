@@ -67,12 +67,25 @@
     var refreshTimer = null;
     var REFRESH_INTERVAL_MS = 30000;
 
+    // --------------- Access Level Constants ---------------
+    var ACCESS_LEVELS = { OFFICER: 10, SUPERVISOR: 20, ADMIN: 30, OWNER: 40 };
+    var LEVEL_NAMES = { 10: "Officer", 20: "Supervisor", 30: "Admin", 40: "Owner" };
+
     // --------------- Org State ---------------
     var currentOrgId = null;
-    var currentUserRole = null;
+    var currentUserLevel = null;
     var assignedOfficers = [];
     var currentOrgName = null;
     var memberCache = new Map();
+    var selectedMemberId = null;
+
+    function hasPermission(requiredLevel) {
+        return currentUserLevel >= requiredLevel;
+    }
+
+    function getLevelName(level) {
+        return LEVEL_NAMES[level] || "Unknown";
+    }
 
     // --------------- Boot ---------------
     function boot() {
@@ -84,7 +97,7 @@
             if (user) {
                 resolveOrgMembership(user.uid).then(function (membership) {
                     if (membership) {
-                        setOrgContext(membership.orgId, membership.role, membership.assignedOfficers, membership.orgName);
+                        setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
                         showDashboard(user);
                     } else {
                         showSetupScreen(user);
@@ -121,8 +134,8 @@
             if (e.target === e.currentTarget) toggleSettingsModal(false);
         });
         document.getElementById("generate-invite-btn").addEventListener("click", function () {
-            var role = document.getElementById("invite-role-select").value;
-            generateInvite(role);
+            var level = parseInt(document.getElementById("invite-role-select").value, 10);
+            generateInvite(level);
         });
     }
 
@@ -139,9 +152,10 @@
 
     function handleLogout() {
         currentOrgId = null;
-        currentUserRole = null;
+        currentUserLevel = null;
         assignedOfficers = [];
         currentOrgName = null;
+        selectedMemberId = null;
         memberCache.clear();
         orgLabel.hidden = true;
         auth.signOut();
@@ -184,11 +198,18 @@
         dashboardScreen.hidden = false;
         userEmailSpan.textContent = user.email;
 
-        // Role-based UI gating
-        document.getElementById("settings-btn").hidden = (currentUserRole !== "admin");
-        document.getElementById("toggle-record-btn").hidden = (currentUserRole !== "officer");
+        // Level-based UI gating
+        document.getElementById("settings-btn").hidden = !hasPermission(ACCESS_LEVELS.ADMIN);
+        document.getElementById("toggle-record-btn").hidden = (currentUserLevel !== ACCESS_LEVELS.OFFICER);
+
+        // Members sidebar: visible for supervisors and above
+        var sidebar = document.getElementById("members-sidebar");
+        sidebar.hidden = !hasPermission(ACCESS_LEVELS.SUPERVISOR);
 
         loadMemberCache().then(function () {
+            if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
+                renderMembersSidebar();
+            }
             loadTranscripts();
         });
         startAutoRefresh();
@@ -209,7 +230,7 @@
                     var orgName = orgDoc.exists ? orgDoc.data().name : orgId;
                     return {
                         orgId: orgId,
-                        role: data.role,
+                        accessLevel: data.accessLevel,
                         assignedOfficers: data.assignedOfficers || [],
                         orgName: orgName
                     };
@@ -217,9 +238,9 @@
             });
     }
 
-    function setOrgContext(orgId, role, officers, orgName) {
+    function setOrgContext(orgId, accessLevel, officers, orgName) {
         currentOrgId = orgId;
-        currentUserRole = role;
+        currentUserLevel = accessLevel;
         assignedOfficers = officers || [];
         currentOrgName = orgName || orgId;
         orgLabelText.textContent = currentOrgName;
@@ -239,7 +260,7 @@
         batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
             uid: user.uid,
             email: user.email,
-            role: "admin",
+            accessLevel: ACCESS_LEVELS.OWNER,
             joinedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         return batch.commit().then(function () {
@@ -261,13 +282,13 @@
                 var inviteDoc = snapshot.docs[0];
                 var inviteData = inviteDoc.data();
                 var orgId = inviteDoc.ref.parent.parent.id;
-                var role = inviteData.role || "officer";
+                var accessLevel = inviteData.accessLevel || ACCESS_LEVELS.OFFICER;
 
                 var batch = db.batch();
                 batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
                     uid: user.uid,
                     email: user.email,
-                    role: role,
+                    accessLevel: accessLevel,
                     assignedOfficers: inviteData.assignedOfficers || [],
                     joinedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -277,7 +298,7 @@
                     usedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 return batch.commit().then(function () {
-                    return { orgId: orgId, role: role, assignedOfficers: inviteData.assignedOfficers || [] };
+                    return { orgId: orgId, accessLevel: accessLevel, assignedOfficers: inviteData.assignedOfficers || [] };
                 });
             });
     }
@@ -314,7 +335,7 @@
             createOrgBtn.disabled = true;
 
             handleCreateOrg(name).then(function (orgId) {
-                setOrgContext(orgId, "admin", [], name);
+                setOrgContext(orgId, ACCESS_LEVELS.OWNER, [], name);
                 showDashboard(auth.currentUser);
             }).catch(function (err) {
                 setupError.textContent = err.message || "Failed to create organization.";
@@ -340,7 +361,7 @@
             handleJoinOrg(code).then(function (result) {
                 return db.collection("orgs").doc(result.orgId).get().then(function (orgDoc) {
                     var orgName = orgDoc.exists ? orgDoc.data().name : result.orgId;
-                    setOrgContext(result.orgId, result.role, result.assignedOfficers, orgName);
+                    setOrgContext(result.orgId, result.accessLevel, result.assignedOfficers, orgName);
                     showDashboard(auth.currentUser);
                 });
             }).catch(function (err) {
@@ -366,13 +387,117 @@
                     memberCache.set(doc.id, {
                         displayName: d.displayName || d.email || doc.id,
                         email: d.email || "",
-                        role: d.role || "officer"
+                        accessLevel: d.accessLevel || ACCESS_LEVELS.OFFICER
                     });
                 });
             })
             .catch(function (err) {
                 console.error("Failed to load member cache", err);
             });
+    }
+
+    // --------------- Members Sidebar ---------------
+    function getInitials(name) {
+        var parts = name.split(/\s+/);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return name.substring(0, 2).toUpperCase();
+    }
+
+    function getLevelClassName(level) {
+        var name = LEVEL_NAMES[level];
+        return name ? name.toLowerCase() : "officer";
+    }
+
+    function renderMembersSidebar() {
+        var container = document.getElementById("sidebar-member-list");
+        var html = "";
+
+        memberCache.forEach(function (member, uid) {
+            var isActive = (uid === selectedMemberId);
+            var initials = getInitials(member.displayName);
+            var levelClass = getLevelClassName(member.accessLevel);
+
+            html += '<div class="sidebar-member-row' + (isActive ? ' active' : '') + '" data-uid="' + uid + '" role="button" tabindex="0">';
+            html += '<div class="sidebar-avatar">' + escapeHtml(initials) + '</div>';
+            html += '<div class="sidebar-member-info">';
+            html += '<div class="sidebar-member-name">' + escapeHtml(member.displayName) + '</div>';
+            html += '<div class="sidebar-member-email">' + escapeHtml(member.email) + '</div>';
+            html += '</div>';
+            html += '<span class="role-badge ' + levelClass + '">' + getLevelName(member.accessLevel) + '</span>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+
+        // Wire click handlers on member rows
+        container.querySelectorAll(".sidebar-member-row").forEach(function (row) {
+            row.addEventListener("click", function () {
+                selectMember(row.getAttribute("data-uid"));
+            });
+        });
+
+        // Wire "All Members" button
+        var allMembersBtn = document.getElementById("sidebar-all-members");
+        allMembersBtn.onclick = function () {
+            selectMember(null);
+        };
+
+        // Update active states
+        updateSidebarActiveStates();
+
+        // Wire sidebar toggle
+        var toggleBtn = document.getElementById("sidebar-toggle-btn");
+        toggleBtn.onclick = function () {
+            var sidebar = document.getElementById("members-sidebar");
+            sidebar.classList.toggle("sidebar-collapsed");
+            var icon = toggleBtn.querySelector("i");
+            if (sidebar.classList.contains("sidebar-collapsed")) {
+                icon.setAttribute("data-lucide", "panel-left-open");
+            } else {
+                icon.setAttribute("data-lucide", "panel-left-close");
+            }
+            if (window.lucide) lucide.createIcons();
+        };
+
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function selectMember(uid) {
+        selectedMemberId = uid;
+        updateSidebarActiveStates();
+        loadTranscripts();
+    }
+
+    function updateSidebarActiveStates() {
+        var allBtn = document.getElementById("sidebar-all-members");
+        var rows = document.querySelectorAll("#sidebar-member-list .sidebar-member-row");
+
+        if (!selectedMemberId) {
+            allBtn.classList.add("active");
+        } else {
+            allBtn.classList.remove("active");
+        }
+
+        rows.forEach(function (row) {
+            if (row.getAttribute("data-uid") === selectedMemberId) {
+                row.classList.add("active");
+            } else {
+                row.classList.remove("active");
+            }
+        });
+
+        // Show/hide filter indicator
+        var header = document.querySelector(".sidebar-header");
+        var indicator = header.querySelector(".sidebar-filter-active");
+        if (selectedMemberId) {
+            if (!indicator) {
+                indicator = document.createElement("span");
+                indicator.className = "sidebar-filter-active";
+                header.querySelector(".sidebar-title").appendChild(indicator);
+            }
+        } else if (indicator) {
+            indicator.remove();
+        }
     }
 
     // --------------- Settings Modal ---------------
@@ -393,15 +518,16 @@
 
         memberCache.forEach(function (member, uid) {
             var isCurrentUser = (uid === currentUid);
+            var levelName = getLevelName(member.accessLevel).toLowerCase();
             html += '<div class="member-row" data-uid="' + uid + '">';
             html += '<div class="member-info">';
             html += '<div class="member-name">' + escapeHtml(member.displayName) + '</div>';
             html += '<div class="member-email">' + escapeHtml(member.email) + '</div>';
             html += '</div>';
-            html += '<span class="role-badge ' + member.role + '">' + member.role + '</span>';
+            html += '<span class="role-badge ' + levelName + '">' + getLevelName(member.accessLevel) + '</span>';
             html += '<select class="member-role-select" data-uid="' + uid + '"' + (isCurrentUser ? ' disabled' : '') + '>';
-            ["admin", "supervisor", "officer"].forEach(function (r) {
-                html += '<option value="' + r + '"' + (r === member.role ? ' selected' : '') + '>' + r + '</option>';
+            [ACCESS_LEVELS.OWNER, ACCESS_LEVELS.ADMIN, ACCESS_LEVELS.SUPERVISOR, ACCESS_LEVELS.OFFICER].forEach(function (lvl) {
+                html += '<option value="' + lvl + '"' + (lvl === member.accessLevel ? ' selected' : '') + '>' + getLevelName(lvl) + '</option>';
             });
             html += '</select>';
             if (!isCurrentUser) {
@@ -419,7 +545,6 @@
         container.innerHTML = html;
         if (window.lucide) lucide.createIcons();
 
-        // Wire role change listeners
         container.querySelectorAll(".member-role-select").forEach(function (sel) {
             sel.addEventListener("change", function () {
                 changeMemberRole(sel.getAttribute("data-uid"), sel.value);
@@ -434,12 +559,16 @@
         });
     }
 
-    function changeMemberRole(uid, newRole) {
-        db.doc("orgs/" + currentOrgId + "/members/" + uid).update({ role: newRole })
+    function changeMemberRole(uid, newLevel) {
+        var level = parseInt(newLevel, 10);
+        db.doc("orgs/" + currentOrgId + "/members/" + uid).update({ accessLevel: level })
             .then(function () {
                 var cached = memberCache.get(uid);
-                if (cached) cached.role = newRole;
+                if (cached) cached.accessLevel = level;
                 renderMemberList();
+                if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
+                    renderMembersSidebar();
+                }
             })
             .catch(function (err) {
                 console.error("Failed to change role", err);
@@ -455,7 +584,13 @@
         db.doc("orgs/" + currentOrgId + "/members/" + uid).delete()
             .then(function () {
                 memberCache.delete(uid);
+                if (selectedMemberId === uid) {
+                    selectMember(null);
+                }
                 renderMemberList();
+                if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
+                    renderMembersSidebar();
+                }
             })
             .catch(function (err) {
                 console.error("Failed to remove member", err);
@@ -463,14 +598,14 @@
             });
     }
 
-    function generateInvite(role) {
+    function generateInvite(accessLevel) {
         var display = document.getElementById("invite-code-display");
         var btn = document.getElementById("generate-invite-btn");
         btn.disabled = true;
         display.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">Generating...</span>';
 
         db.collection("orgs/" + currentOrgId + "/invites").add({
-            role: role,
+            accessLevel: accessLevel,
             createdBy: auth.currentUser.uid,
             createdAt: Date.now(),
             used: false
@@ -523,13 +658,15 @@
             query = query.where("orgId", "==", currentOrgId);
         }
 
-        // Role-based filtering
-        if (currentUserRole === "officer") {
+        // Member filter from sidebar takes priority
+        if (selectedMemberId) {
+            query = query.where("recordedBy", "==", selectedMemberId);
+        } else if (currentUserLevel === ACCESS_LEVELS.OFFICER) {
             query = query.where("recordedBy", "==", auth.currentUser.uid);
-        } else if (currentUserRole === "supervisor" && assignedOfficers.length > 0) {
+        } else if (currentUserLevel === ACCESS_LEVELS.SUPERVISOR && assignedOfficers.length > 0) {
             query = query.where("recordedBy", "in", assignedOfficers);
         }
-        // admin: no additional recordedBy filter
+        // admin/owner without selectedMemberId: no additional recordedBy filter
 
         var startDate = filterStart.value;
         var endDate = filterEnd.value;
@@ -753,7 +890,7 @@
         }
 
         var officerLabel = "";
-        if (currentUserRole !== "officer" && t.recordedBy) {
+        if (currentUserLevel !== ACCESS_LEVELS.OFFICER && t.recordedBy) {
             var member = memberCache.get(t.recordedBy);
             var name = member ? member.displayName : t.recordedBy;
             officerLabel = '<span class="officer-name">' + escapeHtml(name) + '</span>';
@@ -926,7 +1063,7 @@
 
     // --------------- Record Panel (Always-On Chunked Pipeline) ---------------
     function initRecordPanel() {
-        if (currentUserRole && currentUserRole !== "officer") {
+        if (currentUserLevel && currentUserLevel !== ACCESS_LEVELS.OFFICER) {
             document.getElementById("toggle-record-btn").hidden = true;
             return;
         }

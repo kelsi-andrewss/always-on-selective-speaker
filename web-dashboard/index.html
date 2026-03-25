@@ -119,6 +119,34 @@
             </div>
         </nav>
 
+        <div class="dashboard-body">
+        <div id="members-sidebar" class="sidebar-container" hidden>
+            <header class="sidebar-header">
+                <div class="sidebar-title">
+                    <i data-lucide="users" class="sidebar-title-icon"></i>
+                    <span>Members</span>
+                </div>
+                <button id="sidebar-toggle-btn" class="icon-btn" title="Toggle Sidebar" aria-label="Toggle Sidebar">
+                    <i data-lucide="panel-left-close"></i>
+                </button>
+            </header>
+
+            <div class="sidebar-body">
+                <div id="sidebar-all-members" class="sidebar-member-row active" role="button" tabindex="0">
+                    <div class="sidebar-avatar">
+                        <i data-lucide="layers"></i>
+                    </div>
+                    <div class="sidebar-member-info">
+                        <span class="sidebar-member-name">All Members</span>
+                    </div>
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <div id="sidebar-member-list"></div>
+            </div>
+        </div>
+
         <main class="dashboard-content">
             <header class="page-header">
                 <div>
@@ -157,6 +185,7 @@
                 </div>
             </div>
         </main>
+        </div>
 
         <!-- Test Panel (toggle with keyboard shortcut) -->
         <div id="test-panel" class="test-panel" hidden>
@@ -218,8 +247,8 @@
                         <div class="invite-controls-row">
                             <div class="select-wrapper">
                                 <select id="invite-role-select">
-                                    <option value="officer" selected>Officer</option>
-                                    <option value="supervisor">Supervisor</option>
+                                    <option value="10" selected>Officer</option>
+                                    <option value="20">Supervisor</option>
                                 </select>
                                 <i data-lucide="chevron-down" class="select-icon"></i>
                             </div>
