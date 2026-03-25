@@ -1198,3 +1198,319 @@ body {
     color: var(--text-tertiary);
     margin: 0 2px;
 }
+
+/* ------------------- ADMIN SETTINGS MODAL ------------------- */
+
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+
+.settings-modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    max-width: 560px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    animation: modal-appear 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-appear {
+    from { opacity: 0; transform: scale(0.98) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.settings-modal-header {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.settings-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.settings-modal-body {
+    padding: 32px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.modal-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* ------------------- MEMBER MANAGEMENT ------------------- */
+
+.member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.member-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-surface-raised);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    transition: var(--transition-fast);
+}
+
+.member-row:hover {
+    border-color: var(--border-strong);
+}
+
+.member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.member-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.member-email {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.role-badge {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.role-badge.admin {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.role-badge.supervisor {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.role-badge.officer {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.member-role-select {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: var(--transition-fast);
+}
+
+.member-role-select:focus {
+    border-color: var(--primary);
+}
+
+.member-remove-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: var(--transition-fast);
+    padding: 4px;
+    color: var(--text-tertiary);
+}
+
+.member-remove-btn:hover {
+    color: var(--error);
+    background: var(--error-bg);
+}
+
+.member-remove-btn i {
+    width: 18px;
+    height: 18px;
+}
+
+/* ------------------- INVITE SYSTEM ------------------- */
+
+.invite-controls-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.select-wrapper {
+    position: relative;
+    flex: 1;
+}
+
+.select-wrapper select {
+    width: 100%;
+    background: var(--bg-surface-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    padding-right: 36px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    outline: none;
+    transition: var(--transition-fast);
+}
+
+.select-wrapper select:hover {
+    border-color: var(--border-strong);
+}
+
+.select-wrapper select:focus {
+    border-color: var(--primary);
+}
+
+.select-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: var(--text-tertiary);
+    pointer-events: none;
+}
+
+.invite-code-display {
+    margin-top: 16px;
+}
+
+.invite-code-display:not(:empty) {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-surface-raised);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+
+.invite-code-text {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+    letter-spacing: 0.05em;
+    flex: 1;
+    word-break: break-all;
+}
+
+.copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    font-family: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+}
+
+.copy-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+}
+
+.copy-btn.copied {
+    color: var(--success);
+}
+
+/* ------------------- UI ENHANCEMENTS ------------------- */
+
+.officer-name {
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+.record-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ------------------- RESPONSIVE OVERRIDES ------------------- */
+
+@media (max-width: 600px) {
+    .settings-modal {
+        width: 95%;
+        padding: 20px;
+    }
+
+    .member-row {
+        flex-wrap: wrap;
+    }
+
+    .invite-controls-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

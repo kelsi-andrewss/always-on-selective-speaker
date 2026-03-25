@@ -110,6 +110,9 @@
                     <i data-lucide="flask-conical"></i>
                     Test
                 </button>
+                <button id="settings-btn" class="icon-btn" title="Organization Settings" hidden>
+                    <i data-lucide="settings"></i>
+                </button>
                 <button id="logout-btn" class="icon-btn" title="Sign Out">
                     <i data-lucide="log-out"></i>
                 </button>
@@ -192,6 +195,42 @@
                     <button id="test-clear-btn" class="danger-btn"><i data-lucide="trash-2"></i> Clear All</button>
                 </div>
                 <p id="test-status" class="test-status"></p>
+            </div>
+        </div>
+
+        <!-- Admin Settings Modal -->
+        <div id="settings-overlay" class="settings-overlay" hidden>
+            <div id="settings-modal" class="settings-modal">
+                <div class="settings-modal-header">
+                    <h3>Organization Settings</h3>
+                    <button id="settings-close-btn" class="icon-btn" title="Close">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="settings-modal-body">
+                    <section class="modal-section">
+                        <h4 class="section-title">Members</h4>
+                        <div id="member-list" class="member-list"></div>
+                    </section>
+                    <div class="divider"></div>
+                    <section class="modal-section">
+                        <h4 class="section-title">Invite New Member</h4>
+                        <div class="invite-controls-row">
+                            <div class="select-wrapper">
+                                <select id="invite-role-select">
+                                    <option value="officer" selected>Officer</option>
+                                    <option value="supervisor">Supervisor</option>
+                                </select>
+                                <i data-lucide="chevron-down" class="select-icon"></i>
+                            </div>
+                            <button id="generate-invite-btn" class="primary-btn">
+                                <i data-lucide="user-plus"></i>
+                                Generate Invite
+                            </button>
+                        </div>
+                        <div id="invite-code-display" class="invite-code-display"></div>
+                    </section>
+                </div>
             </div>
         </div>
 

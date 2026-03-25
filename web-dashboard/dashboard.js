@@ -72,6 +72,7 @@
     var currentUserRole = null;
     var assignedOfficers = [];
     var currentOrgName = null;
+    var memberCache = new Map();
 
     // --------------- Boot ---------------
     function boot() {
@@ -108,6 +109,21 @@
         initSetupScreen();
         initTestPanel();
         initRecordPanel();
+
+        // Settings modal
+        document.getElementById("settings-btn").addEventListener("click", function () {
+            toggleSettingsModal(true);
+        });
+        document.getElementById("settings-close-btn").addEventListener("click", function () {
+            toggleSettingsModal(false);
+        });
+        document.getElementById("settings-overlay").addEventListener("click", function (e) {
+            if (e.target === e.currentTarget) toggleSettingsModal(false);
+        });
+        document.getElementById("generate-invite-btn").addEventListener("click", function () {
+            var role = document.getElementById("invite-role-select").value;
+            generateInvite(role);
+        });
     }
 
     // --------------- Auth ---------------
@@ -126,6 +142,7 @@
         currentUserRole = null;
         assignedOfficers = [];
         currentOrgName = null;
+        memberCache.clear();
         orgLabel.hidden = true;
         auth.signOut();
     }
@@ -166,7 +183,14 @@
         setupScreen.hidden = true;
         dashboardScreen.hidden = false;
         userEmailSpan.textContent = user.email;
-        loadTranscripts();
+
+        // Role-based UI gating
+        document.getElementById("settings-btn").hidden = (currentUserRole !== "admin");
+        document.getElementById("toggle-record-btn").hidden = (currentUserRole !== "officer");
+
+        loadMemberCache().then(function () {
+            loadTranscripts();
+        });
         startAutoRefresh();
     }
 
@@ -331,6 +355,150 @@
         if (window.lucide) lucide.createIcons();
     }
 
+    // --------------- Member Cache ---------------
+    function loadMemberCache() {
+        if (!currentOrgId) return Promise.resolve();
+        return db.collection("orgs/" + currentOrgId + "/members").get()
+            .then(function (snapshot) {
+                memberCache.clear();
+                snapshot.docs.forEach(function (doc) {
+                    var d = doc.data();
+                    memberCache.set(doc.id, {
+                        displayName: d.displayName || d.email || doc.id,
+                        email: d.email || "",
+                        role: d.role || "officer"
+                    });
+                });
+            })
+            .catch(function (err) {
+                console.error("Failed to load member cache", err);
+            });
+    }
+
+    // --------------- Settings Modal ---------------
+    function toggleSettingsModal(open) {
+        var overlay = document.getElementById("settings-overlay");
+        overlay.hidden = !open;
+        if (open) {
+            renderMemberList();
+            document.getElementById("invite-code-display").innerHTML = "";
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+
+    function renderMemberList() {
+        var container = document.getElementById("member-list");
+        var currentUid = auth.currentUser ? auth.currentUser.uid : null;
+        var html = "";
+
+        memberCache.forEach(function (member, uid) {
+            var isCurrentUser = (uid === currentUid);
+            html += '<div class="member-row" data-uid="' + uid + '">';
+            html += '<div class="member-info">';
+            html += '<div class="member-name">' + escapeHtml(member.displayName) + '</div>';
+            html += '<div class="member-email">' + escapeHtml(member.email) + '</div>';
+            html += '</div>';
+            html += '<span class="role-badge ' + member.role + '">' + member.role + '</span>';
+            html += '<select class="member-role-select" data-uid="' + uid + '"' + (isCurrentUser ? ' disabled' : '') + '>';
+            ["admin", "supervisor", "officer"].forEach(function (r) {
+                html += '<option value="' + r + '"' + (r === member.role ? ' selected' : '') + '>' + r + '</option>';
+            });
+            html += '</select>';
+            if (!isCurrentUser) {
+                html += '<button class="member-remove-btn" data-uid="' + uid + '" title="Remove member">';
+                html += '<i data-lucide="trash-2"></i>';
+                html += '</button>';
+            }
+            html += '</div>';
+        });
+
+        if (memberCache.size === 0) {
+            html = '<div class="empty-state" style="padding:24px"><p>No members found.</p></div>';
+        }
+
+        container.innerHTML = html;
+        if (window.lucide) lucide.createIcons();
+
+        // Wire role change listeners
+        container.querySelectorAll(".member-role-select").forEach(function (sel) {
+            sel.addEventListener("change", function () {
+                changeMemberRole(sel.getAttribute("data-uid"), sel.value);
+            });
+        });
+
+        // Wire remove listeners
+        container.querySelectorAll(".member-remove-btn").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                removeMember(btn.getAttribute("data-uid"));
+            });
+        });
+    }
+
+    function changeMemberRole(uid, newRole) {
+        db.doc("orgs/" + currentOrgId + "/members/" + uid).update({ role: newRole })
+            .then(function () {
+                var cached = memberCache.get(uid);
+                if (cached) cached.role = newRole;
+                renderMemberList();
+            })
+            .catch(function (err) {
+                console.error("Failed to change role", err);
+                alert("Failed to update role: " + err.message);
+            });
+    }
+
+    function removeMember(uid) {
+        var member = memberCache.get(uid);
+        var name = member ? member.displayName : uid;
+        if (!confirm("Remove " + name + " from this organization?")) return;
+
+        db.doc("orgs/" + currentOrgId + "/members/" + uid).delete()
+            .then(function () {
+                memberCache.delete(uid);
+                renderMemberList();
+            })
+            .catch(function (err) {
+                console.error("Failed to remove member", err);
+                alert("Failed to remove member: " + err.message);
+            });
+    }
+
+    function generateInvite(role) {
+        var display = document.getElementById("invite-code-display");
+        var btn = document.getElementById("generate-invite-btn");
+        btn.disabled = true;
+        display.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">Generating...</span>';
+
+        db.collection("orgs/" + currentOrgId + "/invites").add({
+            role: role,
+            createdBy: auth.currentUser.uid,
+            createdAt: Date.now(),
+            used: false
+        }).then(function (docRef) {
+            var code = docRef.id;
+            display.innerHTML = '<span class="invite-code-text">' + escapeHtml(code) + '</span>'
+                + '<button class="copy-btn" id="copy-invite-btn"><i data-lucide="copy"></i> Copy</button>';
+            if (window.lucide) lucide.createIcons();
+            document.getElementById("copy-invite-btn").addEventListener("click", function () {
+                navigator.clipboard.writeText(code).then(function () {
+                    var copyBtn = document.getElementById("copy-invite-btn");
+                    copyBtn.classList.add("copied");
+                    copyBtn.innerHTML = '<i data-lucide="check"></i> Copied';
+                    if (window.lucide) lucide.createIcons();
+                    setTimeout(function () {
+                        copyBtn.classList.remove("copied");
+                        copyBtn.innerHTML = '<i data-lucide="copy"></i> Copy';
+                        if (window.lucide) lucide.createIcons();
+                    }, 2000);
+                });
+            });
+        }).catch(function (err) {
+            display.innerHTML = '<span style="color:var(--error);font-size:13px">Error: ' + escapeHtml(err.message) + '</span>';
+        }).finally(function () {
+            btn.disabled = false;
+        });
+    }
+
     // --------------- Auto-refresh ---------------
     function startAutoRefresh() {
         stopAutoRefresh();
@@ -348,11 +516,20 @@
 
     // --------------- Data loading ---------------
     function loadTranscripts() {
-        var query = db.collection(transcriptsPath()).orderBy("timestamp", "desc").limit(500);
+        var col = db.collection(transcriptsPath());
+        var query = col.orderBy("timestamp", "desc").limit(500);
 
         if (currentOrgId) {
             query = query.where("orgId", "==", currentOrgId);
         }
+
+        // Role-based filtering
+        if (currentUserRole === "officer") {
+            query = query.where("recordedBy", "==", auth.currentUser.uid);
+        } else if (currentUserRole === "supervisor" && assignedOfficers.length > 0) {
+            query = query.where("recordedBy", "in", assignedOfficers);
+        }
+        // admin: no additional recordedBy filter
 
         var startDate = filterStart.value;
         var endDate = filterEnd.value;
@@ -372,12 +549,7 @@
             }));
         }).catch(function (err) {
             console.error("Failed to load transcripts", err);
-            transcriptList.innerHTML = `
-                <div class="empty-state">
-                    <i data-lucide="alert-triangle"></i>
-                    <p>Failed to load transcripts.</p>
-                </div>
-            `;
+            transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="alert-triangle"></i><p>Failed to load transcripts.</p></div>';
             lucide.createIcons();
         });
     }
@@ -576,26 +748,24 @@
             var lat = Number(t.latitude).toFixed(6);
             var lng = Number(t.longitude).toFixed(6);
             var mapsUrl = "https://www.google.com/maps?q=" + lat + "," + lng;
-            gps = `
-                <a class="gps-link" href="${mapsUrl}" target="_blank" rel="noopener">
-                    <i data-lucide="map-pin"></i>
-                    ${lat}, ${lng}
-                </a>
-            `;
+            gps = '<a class="gps-link" href="' + mapsUrl + '" target="_blank" rel="noopener">'
+                + '<i data-lucide="map-pin"></i> ' + lat + ', ' + lng + '</a>';
         }
 
-        return `
-            <div class="transcript-card">
-                <div class="transcript-meta">
-                    <div class="time-stamp">
-                        <i data-lucide="clock"></i>
-                        <span>${escapeHtml(time)}</span>
-                    </div>
-                    ${gps}
-                </div>
-                <div class="transcript-text">${escapeHtml(displayText)}</div>
-            </div>
-        `;
+        var officerLabel = "";
+        if (currentUserRole !== "officer" && t.recordedBy) {
+            var member = memberCache.get(t.recordedBy);
+            var name = member ? member.displayName : t.recordedBy;
+            officerLabel = '<span class="officer-name">' + escapeHtml(name) + '</span>';
+        }
+
+        return '<div class="transcript-card">'
+            + '<div class="transcript-meta">'
+            + '<div class="time-stamp"><i data-lucide="clock"></i><span>' + escapeHtml(time) + '</span>' + officerLabel + '</div>'
+            + gps
+            + '</div>'
+            + '<div class="transcript-text">' + escapeHtml(displayText) + '</div>'
+            + '</div>';
     }
 
     // --------------- Helpers ---------------
@@ -756,6 +926,10 @@
 
     // --------------- Record Panel (Always-On Chunked Pipeline) ---------------
     function initRecordPanel() {
+        if (currentUserRole && currentUserRole !== "officer") {
+            document.getElementById("toggle-record-btn").hidden = true;
+            return;
+        }
         var recordPanel = document.getElementById("record-panel");
         var goLiveBtn = document.getElementById("go-live-btn");
         var goStopBtn = document.getElementById("go-stop-btn");
