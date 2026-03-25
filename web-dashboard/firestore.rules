@@ -15,26 +15,37 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
     }
 
-    function hasRole(orgId, role) {
-      return isMember(orgId) && getUserData(orgId).role == role;
+    function getAccessLevel(orgId) {
+      return getUserData(orgId).accessLevel;
+    }
+
+    function isOwner(orgId) {
+      return isMember(orgId) && getAccessLevel(orgId) >= 40;
     }
 
     function isAdmin(orgId) {
-      return hasRole(orgId, 'admin');
+      return isMember(orgId) && getAccessLevel(orgId) >= 30;
     }
 
     function isSupervisor(orgId) {
-      return hasRole(orgId, 'supervisor');
+      return isMember(orgId) && getAccessLevel(orgId) >= 20;
     }
 
     function isOfficer(orgId) {
-      return hasRole(orgId, 'officer');
+      return isMember(orgId) && getAccessLevel(orgId) >= 10;
+    }
+
+    function isValidAccessLevel(value) {
+      return value is int && value in [10, 20, 30, 40];
+    }
+
+    function getMemberData(orgId, uid) {
+      return get(/databases/$(database)/documents/orgs/$(orgId)/members/$(uid)).data;
     }
 
     // --- Orgs ---
     match /orgs/{orgId} {
       allow read: if isMember(orgId);
-      // Allow org creation by any authenticated user (bootstrap)
       allow create: if isAuthenticated()
         && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if isAdmin(orgId);
@@ -42,13 +53,20 @@ service cloud.firestore {
       // --- Members subcollection ---
       match /members/{uid} {
         allow read: if isMember(orgId);
-        // Allow first member (creator) to bootstrap themselves as admin
+        // Allow first member (creator) to bootstrap themselves as Owner (accessLevel 40)
+        // Allow admins to create members with any valid accessLevel
+        // Allow self-join with non-admin/non-owner level
         allow create: if isAuthenticated()
+          && isValidAccessLevel(request.resource.data.accessLevel)
           && (isAdmin(orgId)
-            || (uid == request.auth.uid && request.resource.data.role == 'admin'
+            || (uid == request.auth.uid && request.resource.data.accessLevel == 40
               && get(/databases/$(database)/documents/orgs/$(orgId)).data.createdBy == request.auth.uid)
-            || (uid == request.auth.uid && request.resource.data.role != 'admin'));
-        allow update, delete: if isAdmin(orgId);
+            || (uid == request.auth.uid && request.resource.data.accessLevel <= 20));
+        allow update: if isAdmin(orgId)
+          && isValidAccessLevel(request.resource.data.accessLevel);
+        // Delete: admins can delete, but non-owners cannot delete owners
+        allow delete: if isAdmin(orgId)
+          && (getMemberData(orgId, uid).accessLevel < 40 || isOwner(orgId));
       }
 
       // --- Invites subcollection ---
@@ -60,9 +78,6 @@ service cloud.firestore {
 
     // --- Transcripts ---
     match /transcripts/{transcriptId} {
-      // Admin: read any transcript in their org
-      // Supervisor: read transcripts where recordedBy is in their assignedOfficers
-      // Officer: read only own transcripts
       allow read: if isAuthenticated()
         && resource.data.orgId is string
         && (
@@ -71,7 +86,6 @@ service cloud.firestore {
           || (isSupervisor(resource.data.orgId) && resource.data.recordedBy in getUserData(resource.data.orgId).assignedOfficers)
         );
 
-      // Officers can create/update only their own transcripts, orgId must match their org
       allow create: if isAuthenticated()
         && request.resource.data.orgId is string
         && isMember(request.resource.data.orgId)
