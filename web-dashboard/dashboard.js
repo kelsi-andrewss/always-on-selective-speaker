@@ -171,45 +171,112 @@
         });
     }
 
-    // --------------- Conversation Clustering ---------------
-    var CONVERSATION_GAP_MS = 2 * 60 * 1000; // 2 minutes = new conversation
+    // --------------- Conversation Clustering (content + time) ---------------
+    var STOP_WORDS = new Set([
+        "a","an","the","is","are","was","were","be","been","being","have","has","had",
+        "do","does","did","will","would","shall","should","may","might","can","could",
+        "i","me","my","we","our","you","your","he","him","his","she","her","it","its",
+        "they","them","their","this","that","these","those","am","not","no","or","and",
+        "but","if","then","so","at","by","for","from","in","into","of","on","to","with",
+        "about","up","out","off","over","under","again","further","just","also","very",
+        "too","quite","really","here","there","when","where","how","what","which","who",
+        "all","any","both","each","every","some","such","than","other","only","own",
+        "same","more","most","much","many","as","like","get","got","go","went","going",
+        "said","told","asked","let","see","saw","know","knew","think","thought","come",
+        "came","take","took","make","made","give","gave","put","set","still","back",
+        "well","way","because","through","between","after","before","around","down"
+    ]);
+
+    function extractKeywords(text) {
+        if (!text) return [];
+        return text.toLowerCase()
+            .replace(/[^a-z0-9\s]/g, " ")
+            .split(/\s+/)
+            .filter(function (w) { return w.length > 2 && !STOP_WORDS.has(w); });
+    }
+
+    function jaccardSimilarity(setA, setB) {
+        if (setA.length === 0 && setB.length === 0) return 0;
+        var a = new Set(setA);
+        var b = new Set(setB);
+        var intersection = 0;
+        a.forEach(function (w) { if (b.has(w)) intersection++; });
+        var union = new Set(setA.concat(setB)).size;
+        return union === 0 ? 0 : intersection / union;
+    }
+
+    function timeSimilarity(gapMs) {
+        // 1.0 at 0 gap, decays exponentially. ~0.5 at 2 min, ~0.1 at 5 min, ~0 at 10 min
+        return Math.exp(-gapMs / 150000);
+    }
 
     function clusterIntoConversations(items) {
         if (items.length === 0) return [];
 
-        // Sort chronologically
         var sorted = items.slice().sort(function (a, b) {
             return (a.timestamp || 0) - (b.timestamp || 0);
         });
 
         var conversations = [];
-        var current = { items: [sorted[0]], start: sorted[0].timestamp || 0, end: sorted[0].timestamp || 0 };
+        var current = {
+            items: [sorted[0]],
+            start: sorted[0].timestamp || 0,
+            end: sorted[0].timestamp || 0,
+            keywords: extractKeywords(sorted[0].correctedText || sorted[0].text)
+        };
 
         for (var i = 1; i < sorted.length; i++) {
-            var ts = sorted[i].timestamp || 0;
+            var item = sorted[i];
+            var ts = item.timestamp || 0;
             var gap = ts - current.end;
+            var itemText = item.correctedText || item.text || "";
+            var itemKeywords = extractKeywords(itemText);
 
-            if (gap > CONVERSATION_GAP_MS) {
-                // New conversation
+            // Combine all keywords from current conversation for broader matching
+            var contentScore = jaccardSimilarity(current.keywords, itemKeywords);
+            var timeScore = timeSimilarity(gap);
+
+            // Weighted: content matters more than time
+            var continuity = (contentScore * 0.6) + (timeScore * 0.4);
+
+            // Hard cutoff: >10 min gap always splits regardless of content
+            var hardSplit = gap > 10 * 60 * 1000;
+
+            if (hardSplit || continuity < 0.15) {
                 conversations.push(current);
-                current = { items: [sorted[i]], start: ts, end: ts };
+                current = {
+                    items: [item],
+                    start: ts,
+                    end: ts,
+                    keywords: itemKeywords
+                };
             } else {
-                current.items.push(sorted[i]);
+                current.items.push(item);
                 current.end = ts;
+                // Accumulate keywords for the conversation
+                current.keywords = current.keywords.concat(itemKeywords);
             }
         }
         conversations.push(current);
 
-        // Reverse so newest conversations are first
         conversations.reverse();
         return conversations;
     }
 
     function generateConversationTitle(convo) {
-        // Use first chunk's text, truncated
-        var firstText = convo.items[0].correctedText || convo.items[0].text || "";
-        if (firstText.length > 80) return firstText.substring(0, 77) + "...";
-        if (firstText.length > 0) return firstText;
+        // Find the most keyword-dense chunk as the "topic" chunk
+        var bestText = "";
+        var bestScore = -1;
+        convo.items.forEach(function (item) {
+            var text = item.correctedText || item.text || "";
+            var kw = extractKeywords(text);
+            if (kw.length > bestScore) {
+                bestScore = kw.length;
+                bestText = text;
+            }
+        });
+        if (bestText.length > 80) return bestText.substring(0, 77) + "...";
+        if (bestText.length > 0) return bestText;
         return "Untitled Conversation";
     }
 
