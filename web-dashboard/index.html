@@ -3,70 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Frontier Audio — Transcript Dashboard</title>
+    <title>Frontier Audio — Supervisor Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="theme.css">
 </head>
 <body>
+    <div class="glow-bg"></div>
 
     <!-- Login Screen -->
     <div id="login-screen" class="screen">
-        <div class="login-card">
-            <div class="brand-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: white; margin-bottom: 16px;">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                    <line x1="12" y1="19" x2="12" y2="22"></line>
-                </svg>
+        <div class="login-wrapper">
+            <div class="login-card">
+                <div class="brand-icon-wrapper">
+                    <i data-lucide="audio-waveform" class="brand-icon"></i>
+                </div>
+                <h1>Frontier Audio</h1>
+                <p class="subtitle">Enterprise Supervisor Dashboard</p>
+                <div class="divider"></div>
+                <button type="button" id="google-login-btn" class="google-btn">
+                    <svg width="20" height="20" viewBox="0 0 48 48">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                        <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.77.9 7.34 2.56 10.51l7.97-5.92z"/>
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.92C6.51 42.62 14.62 48 24 48z"/>
+                    </svg>
+                    Continue with Google
+                </button>
+                <p id="login-error" class="error" hidden></p>
             </div>
-            <h1>Frontier Audio</h1>
-            <p class="subtitle">Supervisor Dashboard</p>
-            <button type="button" id="google-login-btn" class="google-btn">
-                <svg width="18" height="18" viewBox="0 0 48 48">
-                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                    <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.77.9 7.34 2.56 10.51l7.97-5.92z"/>
-                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.92C6.51 42.62 14.62 48 24 48z"/>
-                </svg>
-                Sign in with Google
-            </button>
-            <p id="login-error" class="error" hidden></p>
+            <p class="legal-text">Secure access restricted to authorized personnel only.</p>
         </div>
     </div>
 
     <!-- Dashboard Screen -->
     <div id="dashboard-screen" class="screen" hidden>
-        <nav>
+        <nav class="glass-nav">
             <div class="header-left">
-                <span class="nav-brand">Frontier Audio</span>
-                <span id="auto-refresh-indicator" class="refresh-badge">Auto-refresh: 30s</span>
+                <div class="nav-brand">
+                    <i data-lucide="audio-waveform" class="brand-icon-sm"></i>
+                    <span>Frontier Audio</span>
+                </div>
+                <div class="separator"></div>
+                <div class="status-indicator">
+                    <div class="pulse-dot"></div>
+                    <span id="auto-refresh-indicator">Live Sync</span>
+                </div>
             </div>
             <div class="header-right">
-                <span id="user-email"></span>
-                <button id="logout-btn">Sign Out</button>
+                <div class="user-profile">
+                    <i data-lucide="user-circle" class="profile-icon"></i>
+                    <span id="user-email"></span>
+                </div>
+                <button id="logout-btn" class="icon-btn" title="Sign Out">
+                    <i data-lucide="log-out"></i>
+                </button>
             </div>
         </nav>
 
-        <div class="filters">
-            <label>
-                From
-                <input type="date" id="filter-start">
-            </label>
-            <label>
-                To
-                <input type="date" id="filter-end">
-            </label>
-            <button id="filter-btn">Filter</button>
-            <button id="clear-filter-btn" class="secondary">Clear</button>
-        </div>
+        <main class="dashboard-content">
+            <header class="page-header">
+                <div>
+                    <h2>Transcripts</h2>
+                    <p>Review and monitor audio transcripts</p>
+                </div>
+                
+                <div class="filters-container">
+                    <div class="date-filters">
+                        <div class="input-group">
+                            <i data-lucide="calendar" class="input-icon"></i>
+                            <input type="date" id="filter-start" aria-label="Start Date">
+                        </div>
+                        <span class="to-text">to</span>
+                        <div class="input-group">
+                            <i data-lucide="calendar" class="input-icon"></i>
+                            <input type="date" id="filter-end" aria-label="End Date">
+                        </div>
+                    </div>
+                    <div class="filter-actions">
+                        <button id="filter-btn" class="primary-btn">
+                            <i data-lucide="filter"></i>
+                            Apply
+                        </button>
+                        <button id="clear-filter-btn" class="secondary-btn" title="Clear Filters">
+                            <i data-lucide="x"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
 
-        <div id="transcript-list" class="transcript-list">
-            <p class="placeholder">Loading transcripts...</p>
+            <div id="transcript-list" class="transcript-list">
+                <div class="empty-state placeholder">
+                    <i data-lucide="loader-2" class="spinner"></i>
+                    <p>Loading transcripts...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Test Panel (toggle with keyboard shortcut) -->
+        <div id="test-panel" class="test-panel" hidden>
+            <div class="test-panel-header">
+                <h3><i data-lucide="flask-conical"></i> Test Mode</h3>
+                <button id="close-test-panel" class="icon-btn" title="Close"><i data-lucide="x"></i></button>
+            </div>
+            <div class="test-panel-body">
+                <div class="test-field">
+                    <label>Transcript text</label>
+                    <textarea id="test-text" rows="3" placeholder="Officer approached the vehicle at approximately 14:30..."></textarea>
+                </div>
+                <div class="test-row">
+                    <div class="test-field">
+                        <label>Latitude</label>
+                        <input type="number" id="test-lat" step="0.000001" value="37.7749" placeholder="37.7749">
+                    </div>
+                    <div class="test-field">
+                        <label>Longitude</label>
+                        <input type="number" id="test-lng" step="0.000001" value="-122.4194" placeholder="-122.4194">
+                    </div>
+                </div>
+                <div class="test-row">
+                    <div class="test-field">
+                        <label>Session ID</label>
+                        <input type="text" id="test-session" placeholder="auto-generated">
+                    </div>
+                    <div class="test-field">
+                        <label>Corrected text</label>
+                        <input type="text" id="test-corrected" placeholder="optional LLM-corrected version">
+                    </div>
+                </div>
+                <div class="test-actions">
+                    <button id="test-push-btn" class="primary-btn"><i data-lucide="upload"></i> Push Transcript</button>
+                    <button id="test-batch-btn" class="secondary-btn"><i data-lucide="layers"></i> Push 5 Random</button>
+                    <button id="test-clear-btn" class="danger-btn"><i data-lucide="trash-2"></i> Clear All</button>
+                </div>
+                <p id="test-status" class="test-status"></p>
+            </div>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script>
+      lucide.createIcons();
+    </script>
+    <script src="dashboard.js"></script>
 </body>
 </html>
