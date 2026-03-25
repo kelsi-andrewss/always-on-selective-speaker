@@ -52,7 +52,7 @@ service cloud.firestore {
 
       // --- Members subcollection ---
       match /members/{uid} {
-        allow read: if isMember(orgId);
+        allow read: if isAuthenticated() && (uid == request.auth.uid || isMember(orgId));
         // Allow first member (creator) to bootstrap themselves as Owner (accessLevel 40)
         // Allow admins to create members with any valid accessLevel
         // Allow self-join with non-admin/non-owner level
