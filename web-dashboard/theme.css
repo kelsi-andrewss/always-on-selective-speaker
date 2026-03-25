@@ -972,3 +972,109 @@ body {
         border-radius: 16px 16px 0 0;
     }
 }
+
+/* ---- Conversation Groups ---- */
+.conversation-group {
+    margin-bottom: 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-surface);
+    transition: border-color 0.15s;
+}
+.conversation-group:hover {
+    border-color: var(--border-strong);
+}
+.conversation-group[open] {
+    border-color: var(--border-strong);
+}
+.conversation-header {
+    padding: 16px 20px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    user-select: none;
+}
+.conversation-header::-webkit-details-marker {
+    display: none;
+}
+.conversation-header::marker {
+    content: "";
+}
+.conversation-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.convo-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--primary);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.conversation-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+.conversation-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-left: 26px;
+    flex-wrap: wrap;
+}
+.conversation-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+.conversation-meta i {
+    width: 12px;
+    height: 12px;
+}
+.convo-duration {
+    padding: 2px 8px;
+    background: var(--bg-surface-raised);
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+}
+.convo-count {
+    padding: 2px 8px;
+    background: var(--primary-glow);
+    color: var(--primary) !important;
+    border-radius: 4px;
+    font-weight: 500;
+}
+.convo-gps-badge {
+    color: var(--success) !important;
+}
+.conversation-group[open] .conversation-header {
+    border-bottom: 1px solid var(--border-subtle);
+}
+/* Chevron indicator */
+.conversation-header::after {
+    content: "";
+    position: absolute;
+    right: 20px;
+    top: 20px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-tertiary);
+    border-bottom: 2px solid var(--text-tertiary);
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+}
+.conversation-group {
+    position: relative;
+}
+.conversation-group[open] .conversation-header::after {
+    transform: rotate(45deg);
+    top: 18px;
+}

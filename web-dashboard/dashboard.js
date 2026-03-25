@@ -171,6 +171,70 @@
         });
     }
 
+    // --------------- Conversation Clustering ---------------
+    var CONVERSATION_GAP_MS = 2 * 60 * 1000; // 2 minutes = new conversation
+
+    function clusterIntoConversations(items) {
+        if (items.length === 0) return [];
+
+        // Sort chronologically
+        var sorted = items.slice().sort(function (a, b) {
+            return (a.timestamp || 0) - (b.timestamp || 0);
+        });
+
+        var conversations = [];
+        var current = { items: [sorted[0]], start: sorted[0].timestamp || 0, end: sorted[0].timestamp || 0 };
+
+        for (var i = 1; i < sorted.length; i++) {
+            var ts = sorted[i].timestamp || 0;
+            var gap = ts - current.end;
+
+            if (gap > CONVERSATION_GAP_MS) {
+                // New conversation
+                conversations.push(current);
+                current = { items: [sorted[i]], start: ts, end: ts };
+            } else {
+                current.items.push(sorted[i]);
+                current.end = ts;
+            }
+        }
+        conversations.push(current);
+
+        // Reverse so newest conversations are first
+        conversations.reverse();
+        return conversations;
+    }
+
+    function generateConversationTitle(convo) {
+        // Use first chunk's text, truncated
+        var firstText = convo.items[0].correctedText || convo.items[0].text || "";
+        if (firstText.length > 80) return firstText.substring(0, 77) + "...";
+        if (firstText.length > 0) return firstText;
+        return "Untitled Conversation";
+    }
+
+    function formatTimeRange(startMs, endMs) {
+        var s = new Date(startMs);
+        var e = new Date(endMs);
+        var date = s.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        var startTime = s.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        var endTime = e.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        if (startMs === endMs) return date + " " + startTime;
+        return date + " " + startTime + " — " + endTime;
+    }
+
+    function formatDuration(startMs, endMs) {
+        var diff = Math.max(0, endMs - startMs);
+        var secs = Math.floor(diff / 1000);
+        if (secs < 60) return secs + "s";
+        var mins = Math.floor(secs / 60);
+        secs = secs % 60;
+        if (mins < 60) return mins + "m " + secs + "s";
+        var hrs = Math.floor(mins / 60);
+        mins = mins % 60;
+        return hrs + "h " + mins + "m";
+    }
+
     // --------------- Rendering ---------------
     function renderTranscripts(items) {
         if (items.length === 0) {
@@ -184,32 +248,46 @@
             return;
         }
 
-        var groups = {};
-        var order = [];
-        items.forEach(function (item) {
-            var sid = item.sessionId || "unknown";
-            if (!groups[sid]) {
-                groups[sid] = [];
-                order.push(sid);
-            }
-            groups[sid].push(item);
-        });
-
+        var conversations = clusterIntoConversations(items);
         var html = "";
-        order.forEach(function (sid) {
-            html += '<div class="session-group">';
-            html += '<div class="session-header">Session ID: ' + escapeHtml(sid.substring(0, 16)) + "...</div>";
-            groups[sid].forEach(function (t) {
+
+        conversations.forEach(function (convo, idx) {
+            var title = escapeHtml(generateConversationTitle(convo));
+            var timeRange = formatTimeRange(convo.start, convo.end);
+            var duration = formatDuration(convo.start, convo.end);
+            var count = convo.items.length;
+            var isOpen = idx < 3 ? "open" : "";
+
+            // Check if any item has GPS
+            var hasGps = convo.items.some(function (t) { return t.latitude != null; });
+
+            html += '<details class="conversation-group" ' + isOpen + '>';
+            html += '<summary class="conversation-header">';
+            html += '  <div class="conversation-title-row">';
+            html += '    <i data-lucide="message-square-text" class="convo-icon"></i>';
+            html += '    <span class="conversation-title">' + title + '</span>';
+            html += '  </div>';
+            html += '  <div class="conversation-meta">';
+            html += '    <span class="convo-time"><i data-lucide="clock"></i> ' + escapeHtml(timeRange) + '</span>';
+            html += '    <span class="convo-duration">' + escapeHtml(duration) + '</span>';
+            html += '    <span class="convo-count">' + count + ' chunk' + (count !== 1 ? 's' : '') + '</span>';
+            if (hasGps) html += '    <span class="convo-gps-badge"><i data-lucide="map-pin"></i></span>';
+            html += '  </div>';
+            html += '</summary>';
+
+            // Render chunks chronologically within conversation
+            var chronoItems = convo.items.slice().sort(function (a, b) {
+                return (a.timestamp || 0) - (b.timestamp || 0);
+            });
+            chronoItems.forEach(function (t) {
                 html += renderCard(t);
             });
-            html += "</div>";
+
+            html += '</details>';
         });
 
         transcriptList.innerHTML = html;
-        // Re-initialize icons for newly added elements
-        if (window.lucide) {
-            lucide.createIcons();
-        }
+        if (window.lucide) lucide.createIcons();
     }
 
     function renderCard(t) {
