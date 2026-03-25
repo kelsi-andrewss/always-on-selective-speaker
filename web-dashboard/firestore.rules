@@ -34,12 +34,21 @@ service cloud.firestore {
     // --- Orgs ---
     match /orgs/{orgId} {
       allow read: if isMember(orgId);
-      allow write: if isAdmin(orgId);
+      // Allow org creation by any authenticated user (bootstrap)
+      allow create: if isAuthenticated()
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if isAdmin(orgId);
 
       // --- Members subcollection ---
       match /members/{uid} {
         allow read: if isMember(orgId);
-        allow create, update, delete: if isAdmin(orgId);
+        // Allow first member (creator) to bootstrap themselves as admin
+        allow create: if isAuthenticated()
+          && (isAdmin(orgId)
+            || (uid == request.auth.uid && request.resource.data.role == 'admin'
+              && get(/databases/$(database)/documents/orgs/$(orgId)).data.createdBy == request.auth.uid)
+            || (uid == request.auth.uid && request.resource.data.role != 'admin'));
+        allow update, delete: if isAdmin(orgId);
       }
 
       // --- Invites subcollection ---
