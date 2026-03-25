@@ -727,3 +727,221 @@ body {
         border-radius: 16px 16px 0 0;
     }
 }
+
+/* ---- Record Panel ---- */
+.record-nav-btn i {
+    width: 16px;
+    height: 16px;
+}
+.record-panel {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    width: 420px;
+    max-height: 85vh;
+    background: var(--bg-surface-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px 0 0 0;
+    box-shadow: 0 -4px 40px rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.record-panel.is-recording {
+    border-color: var(--error);
+    box-shadow: 0 -4px 40px rgba(239, 68, 68, 0.15);
+}
+.record-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.record-panel-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--error);
+}
+.record-header-actions {
+    display: flex;
+    gap: 4px;
+}
+.record-settings {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+}
+.record-panel-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Mode toggle pills */
+.record-mode-toggle {
+    display: flex;
+    background: var(--bg-surface);
+    border-radius: 8px;
+    padding: 3px;
+    border: 1px solid var(--border-subtle);
+}
+.mode-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+.mode-btn.active {
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+}
+.mode-btn:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+/* Audio level meter */
+.audio-meter-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.audio-level-meter {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-surface);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+}
+.audio-level-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--success), #fbbf24, var(--error));
+    border-radius: 3px;
+    transition: width 60ms linear;
+}
+.meter-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+/* Record / Stop buttons */
+.record-controls {
+    display: flex;
+    justify-content: center;
+}
+.record-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 32px;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    border: none;
+    width: 100%;
+}
+.record-btn i {
+    width: 20px;
+    height: 20px;
+}
+.record-btn.start {
+    background: var(--error);
+    color: var(--text-primary);
+}
+.record-btn.start:hover {
+    background: #dc2626;
+}
+.record-btn.stop {
+    background: var(--bg-surface);
+    color: var(--error);
+    border: 2px solid var(--error);
+    animation: pulse-border 1.5s ease-in-out infinite;
+}
+.record-btn.stop:hover {
+    background: var(--error-bg);
+}
+@keyframes pulse-border {
+    0%, 100% { border-color: var(--error); }
+    50% { border-color: rgba(239, 68, 68, 0.4); }
+}
+
+/* Status */
+.record-status {
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-height: 20px;
+    text-align: center;
+}
+
+/* GPS display */
+.record-gps {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    text-align: center;
+    min-height: 18px;
+}
+
+/* Transcript preview */
+.transcript-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.transcript-preview label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.transcript-preview-text {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Save button */
+.save-transcript-btn {
+    width: 100%;
+}
+.save-transcript-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 540px) {
+    .record-panel {
+        width: 100%;
+        border-radius: 16px 16px 0 0;
+    }
+}

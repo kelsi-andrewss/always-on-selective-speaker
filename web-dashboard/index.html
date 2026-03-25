@@ -57,6 +57,14 @@
                     <i data-lucide="user-circle" class="profile-icon"></i>
                     <span id="user-email"></span>
                 </div>
+                <button id="toggle-record-btn" class="secondary-btn record-nav-btn" title="Record Audio">
+                    <i data-lucide="mic"></i>
+                    Record
+                </button>
+                <button id="toggle-test-btn" class="secondary-btn" title="Test Mode">
+                    <i data-lucide="flask-conical"></i>
+                    Test
+                </button>
                 <button id="logout-btn" class="icon-btn" title="Sign Out">
                     <i data-lucide="log-out"></i>
                 </button>
@@ -139,6 +147,71 @@
                     <button id="test-clear-btn" class="danger-btn"><i data-lucide="trash-2"></i> Clear All</button>
                 </div>
                 <p id="test-status" class="test-status"></p>
+            </div>
+        </div>
+
+        <!-- Recording Panel -->
+        <div id="record-panel" class="record-panel" hidden>
+            <div class="record-panel-header">
+                <h3><i data-lucide="mic"></i> Record Audio</h3>
+                <div class="record-header-actions">
+                    <button id="record-settings-btn" class="icon-btn" title="API Settings"><i data-lucide="settings"></i></button>
+                    <button id="close-record-panel" class="icon-btn" title="Close"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+
+            <!-- API Key Settings (collapsible) -->
+            <div id="record-settings" class="record-settings" hidden>
+                <div class="test-field">
+                    <label>AssemblyAI API Key</label>
+                    <input type="password" id="api-key-input" placeholder="Paste your AssemblyAI key" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="record-panel-body">
+                <!-- Mode Toggle -->
+                <div class="record-mode-toggle">
+                    <button id="record-mode-browser" class="mode-btn active">Browser STT</button>
+                    <button id="record-mode-cloud" class="mode-btn">Cloud STT</button>
+                </div>
+
+                <!-- Audio Level Meter -->
+                <div class="audio-meter-container">
+                    <div id="audio-level-meter" class="audio-level-meter">
+                        <div class="audio-level-fill"></div>
+                    </div>
+                    <span class="meter-label">Mic Level</span>
+                </div>
+
+                <!-- Record / Stop Buttons -->
+                <div class="record-controls">
+                    <button id="record-start-btn" class="record-btn start">
+                        <i data-lucide="mic"></i>
+                        Start Recording
+                    </button>
+                    <button id="record-stop-btn" class="record-btn stop" hidden>
+                        <i data-lucide="square"></i>
+                        Stop
+                    </button>
+                </div>
+
+                <!-- Status -->
+                <p id="record-status" class="record-status"></p>
+
+                <!-- GPS -->
+                <div id="record-gps-display" class="record-gps"></div>
+
+                <!-- Transcript Preview -->
+                <div id="transcript-preview" class="transcript-preview" hidden>
+                    <label>Transcript</label>
+                    <div class="transcript-preview-text"></div>
+                </div>
+
+                <!-- Save Button -->
+                <button id="save-transcript-btn" class="primary-btn save-transcript-btn" hidden>
+                    <i data-lucide="save"></i>
+                    Save to Firestore
+                </button>
             </div>
         </div>
     </div>
