@@ -1,9 +1,83 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData(orgId) {
+      return get(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data;
+    }
+
+    function isMember(orgId) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+    }
+
+    function hasRole(orgId, role) {
+      return isMember(orgId) && getUserData(orgId).role == role;
+    }
+
+    function isAdmin(orgId) {
+      return hasRole(orgId, 'admin');
+    }
+
+    function isSupervisor(orgId) {
+      return hasRole(orgId, 'supervisor');
+    }
+
+    function isOfficer(orgId) {
+      return hasRole(orgId, 'officer');
+    }
+
+    // --- Orgs ---
+    match /orgs/{orgId} {
+      allow read: if isMember(orgId);
+      allow write: if isAdmin(orgId);
+
+      // --- Members subcollection ---
+      match /members/{uid} {
+        allow read: if isMember(orgId);
+        allow create, update, delete: if isAdmin(orgId);
+      }
+
+      // --- Invites subcollection ---
+      match /invites/{code} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAdmin(orgId);
+      }
+    }
+
+    // --- Transcripts ---
     match /transcripts/{transcriptId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      // Admin: read any transcript in their org
+      // Supervisor: read transcripts where recordedBy is in their assignedOfficers
+      // Officer: read only own transcripts
+      allow read: if isAuthenticated()
+        && resource.data.orgId is string
+        && (
+          isAdmin(resource.data.orgId)
+          || (isOfficer(resource.data.orgId) && resource.data.recordedBy == request.auth.uid)
+          || (isSupervisor(resource.data.orgId) && resource.data.recordedBy in getUserData(resource.data.orgId).assignedOfficers)
+        );
+
+      // Officers can create/update only their own transcripts, orgId must match their org
+      allow create: if isAuthenticated()
+        && request.resource.data.orgId is string
+        && isMember(request.resource.data.orgId)
+        && request.resource.data.recordedBy == request.auth.uid;
+
+      allow update: if isAuthenticated()
+        && resource.data.orgId is string
+        && resource.data.recordedBy == request.auth.uid
+        && isMember(resource.data.orgId)
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.recordedBy == resource.data.recordedBy;
+
+      allow delete: if isAuthenticated()
+        && resource.data.orgId is string
+        && isAdmin(resource.data.orgId);
     }
   }
 }
