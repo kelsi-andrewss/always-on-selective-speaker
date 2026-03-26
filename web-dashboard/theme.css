@@ -1754,3 +1754,43 @@ body {
         background: var(--bg-surface);
     }
 }
+
+/* ---- Your Organizations (setup screen) ---- */
+.your-orgs-heading {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+.your-orgs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 16px;
+}
+.your-org-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-surface-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.your-org-row:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-surface-hover);
+}
+.your-org-row i {
+    width: 16px;
+    height: 16px;
+    color: var(--text-tertiary);
+}

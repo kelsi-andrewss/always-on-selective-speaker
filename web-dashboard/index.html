@@ -46,10 +46,17 @@
                     <i data-lucide="audio-waveform" class="brand-icon"></i>
                 </div>
                 <h1>Frontier Audio</h1>
-                <p class="subtitle">Organization Setup</p>
+                <p class="subtitle">Home</p>
                 <div class="divider"></div>
 
                 <p class="setup-email">Signed in as <span id="setup-user-email"></span></p>
+
+                <!-- Your Organizations (populated dynamically) -->
+                <div id="your-orgs" hidden>
+                    <h3 class="your-orgs-heading">Your Organizations</h3>
+                    <div id="your-orgs-list" class="your-orgs-list"></div>
+                    <div class="divider"></div>
+                </div>
 
                 <div class="setup-tabs">
                     <button type="button" class="setup-tab active" data-tab="create">Create Organization</button>
@@ -86,10 +93,12 @@
     <div id="dashboard-screen" class="screen" hidden>
         <nav class="glass-nav">
             <div class="header-left">
+                <button id="back-to-home-btn" class="icon-btn" title="Back to Home">
+                    <i data-lucide="arrow-left"></i>
+                </button>
                 <div class="nav-brand">
                     <i data-lucide="audio-waveform" class="brand-icon-sm"></i>
-                    <span>Frontier Audio</span>
-                    <span id="org-label" hidden><span class="org-separator">&middot;</span> <span id="org-label-text"></span></span>
+                    <span id="org-label-text">Frontier Audio</span>
                 </div>
                 <div class="separator"></div>
                 <div class="status-indicator">

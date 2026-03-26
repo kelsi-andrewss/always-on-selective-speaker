@@ -59,7 +59,6 @@
     var joinOrgBtn = document.getElementById("join-org-btn");
     var setupError = document.getElementById("setup-error");
     var setupLoading = document.getElementById("setup-loading");
-    var orgLabel = document.getElementById("org-label");
     var orgLabelText = document.getElementById("org-label-text");
 
     var db = null;
@@ -95,17 +94,25 @@
 
         auth.onAuthStateChanged(function (user) {
             if (user) {
-                resolveOrgMembership(user.uid).then(function (membership) {
-                    if (membership) {
-                        setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
-                        showDashboard(user);
-                    } else {
+                userEmailSpan.textContent = user.email;
+                
+                // 1. Check if we have a saved orgId in localStorage
+                var savedOrgId = localStorage.getItem("frontier_orgId");
+                if (savedOrgId) {
+                    enterOrg(user.uid, savedOrgId);
+                } else {
+                    // 2. No saved org, try to resolve automatically if they have any membership
+                    resolveOrgMembership(user.uid).then(function (membership) {
+                        if (membership) {
+                            setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
+                            showDashboard(auth.currentUser);
+                        } else {
+                            showSetupScreen(user);
+                        }
+                    }).catch(function () {
                         showSetupScreen(user);
-                    }
-                }).catch(function (err) {
-                    console.error("Failed to resolve org membership", err);
-                    showSetupScreen(user);
-                });
+                    });
+                }
             } else {
                 showLogin();
             }
@@ -113,6 +120,9 @@
 
         document.getElementById("google-login-btn").addEventListener("click", handleGoogleLogin);
         logoutBtn.addEventListener("click", handleLogout);
+        document.getElementById("back-to-home-btn").addEventListener("click", function () {
+            showSetupScreen(auth.currentUser);
+        });
         filterBtn.addEventListener("click", function () { loadTranscripts(); });
         clearFilterBtn.addEventListener("click", function () {
             filterStart.value = "";
@@ -156,8 +166,9 @@
         assignedOfficers = [];
         currentOrgName = null;
         selectedMemberId = null;
+        localStorage.removeItem("frontier_orgId");
         memberCache.clear();
-        orgLabel.hidden = true;
+        orgLabelText.textContent = "Frontier Audio";
         auth.signOut();
     }
 
@@ -190,6 +201,93 @@
         setupError.hidden = true;
         setupLoading.hidden = true;
         stopAutoRefresh();
+        loadUserOrgs(user.uid);
+    }
+
+    function loadUserOrgs(uid) {
+        var container = document.getElementById("your-orgs");
+        var list = document.getElementById("your-orgs-list");
+        container.hidden = true;
+        list.innerHTML = "";
+
+        // Query ALL memberships for this user via Collection Group query
+        // This finds both orgs they created and orgs they joined
+        db.collectionGroup("members").where("uid", "==", uid).get()
+            .then(function (snapshot) {
+                if (snapshot.empty) return;
+
+                var orgPromises = snapshot.docs.map(function (memberDoc) {
+                    var orgId = memberDoc.ref.parent.parent.id;
+                    return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
+                        return {
+                            id: orgId,
+                            name: (orgDoc.exists && orgDoc.data().name) ? orgDoc.data().name : orgId
+                        };
+                    });
+                });
+
+                return Promise.all(orgPromises).then(function (orgs) {
+                    // Filter out duplicates (if any) and sort by name
+                    var uniqueOrgs = [];
+                    var seenIds = new Set();
+                    orgs.forEach(function (o) {
+                        if (!seenIds.has(o.id)) {
+                            seenIds.add(o.id);
+                            uniqueOrgs.push(o);
+                        }
+                    });
+
+                    uniqueOrgs.sort(function (a, b) {
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    // Backfill user doc for fast login/rules next time
+                    var orgIds = uniqueOrgs.map(function (o) { return o.id; });
+                    db.collection("users").doc(uid).set({ orgs: orgIds }, { merge: true }).catch(function () {});
+
+                    return renderOrgList(uid, uniqueOrgs, container, list);
+                });
+            })
+            .catch(function (err) {
+                console.error("Failed to load user orgs", err);
+            });
+    }
+
+    function renderOrgList(uid, orgs, container, list) {
+        if (orgs.length === 0) return;
+        container.hidden = false;
+        orgs.forEach(function (org) {
+            var row = document.createElement("button");
+            row.className = "your-org-row";
+            row.innerHTML = '<span class="your-org-name">' + escapeHtml(org.name) + '</span><i data-lucide="chevron-right"></i>';
+            row.addEventListener("click", function () {
+                enterOrg(uid, org.id);
+            });
+            list.appendChild(row);
+        });
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function enterOrg(uid, orgId) {
+        document.getElementById("setup-loading").hidden = false;
+        db.collection("orgs").doc(orgId).collection("members").doc(uid).get()
+            .then(function (memberDoc) {
+                if (!memberDoc.exists) {
+                    document.getElementById("setup-error").textContent = "You are no longer a member of this organization.";
+                    document.getElementById("setup-error").hidden = false;
+                    document.getElementById("setup-loading").hidden = true;
+                    return;
+                }
+                return buildMembership(memberDoc, orgId).then(function (membership) {
+                    setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
+                    showDashboard(auth.currentUser);
+                });
+            })
+            .catch(function (err) {
+                document.getElementById("setup-error").textContent = err.message || "Failed to enter organization.";
+                document.getElementById("setup-error").hidden = false;
+                document.getElementById("setup-loading").hidden = true;
+            });
     }
 
     function showDashboard(user) {
@@ -217,25 +315,43 @@
 
     // --------------- Org Membership ---------------
     function resolveOrgMembership(uid) {
-        return db.collectionGroup("members")
-            .where("uid", "==", uid)
-            .limit(1)
-            .get()
+        // Query ALL memberships for this user via Collection Group query
+        return db.collectionGroup("members").where("uid", "==", uid).limit(1).get()
             .then(function (snapshot) {
                 if (snapshot.empty) return null;
-                var doc = snapshot.docs[0];
-                var data = doc.data();
-                var orgId = doc.ref.parent.parent.id;
-                return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
-                    var orgName = orgDoc.exists ? orgDoc.data().name : orgId;
-                    return {
-                        orgId: orgId,
-                        accessLevel: data.accessLevel,
-                        assignedOfficers: data.assignedOfficers || [],
-                        orgName: orgName
-                    };
-                });
+                var memberDoc = snapshot.docs[0];
+                var orgId = memberDoc.ref.parent.parent.id;
+                return buildMembership(memberDoc, orgId);
+            })
+            .catch(function (err) {
+                console.warn("Org membership resolution failed:", err.message);
+                return null;
             });
+    }
+
+    function addUserOrg(uid, orgId) {
+        return db.collection("users").doc(uid).set({
+            orgs: firebase.firestore.FieldValue.arrayUnion(orgId)
+        }, { merge: true });
+    }
+
+    function buildMembership(memberDoc, orgId) {
+        var data = memberDoc.data();
+        var level = data.accessLevel;
+        if (level === undefined || level === null) {
+            var roleMap = { "owner": 40, "admin": 40, "supervisor": 20, "officer": 10 };
+            level = roleMap[(data.role || "").toLowerCase()] || 10;
+        }
+        return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
+            var orgName = orgDoc.exists ? orgDoc.data().name : orgId;
+            localStorage.setItem("frontier_orgId", orgId);
+            return {
+                orgId: orgId,
+                accessLevel: level,
+                assignedOfficers: data.assignedOfficers || [],
+                orgName: orgName
+            };
+        });
     }
 
     function setOrgContext(orgId, accessLevel, officers, orgName) {
@@ -244,26 +360,29 @@
         assignedOfficers = officers || [];
         currentOrgName = orgName || orgId;
         orgLabelText.textContent = currentOrgName;
-        orgLabel.hidden = false;
+        localStorage.setItem("frontier_orgId", orgId);
     }
 
     function handleCreateOrg(orgName) {
         var user = auth.currentUser;
         var orgRef = db.collection("orgs").doc();
         var orgId = orgRef.id;
-        var batch = db.batch();
-        batch.set(orgRef, {
+        // Sequential: org must exist before member doc (rules check org.createdBy)
+        return orgRef.set({
             name: orgName,
             createdBy: user.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
-            uid: user.uid,
-            email: user.email,
-            accessLevel: ACCESS_LEVELS.OWNER,
-            joinedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        return batch.commit().then(function () {
+        }).then(function () {
+            return db.collection("orgs").doc(orgId).collection("members").doc(user.uid).set({
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email,
+                accessLevel: ACCESS_LEVELS.OWNER,
+                joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }).then(function () {
+            return addUserOrg(user.uid, orgId);
+        }).then(function () {
             return orgId;
         });
     }
@@ -298,6 +417,8 @@
                     usedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 return batch.commit().then(function () {
+                    return addUserOrg(user.uid, orgId);
+                }).then(function () {
                     return { orgId: orgId, accessLevel: accessLevel, assignedOfficers: inviteData.assignedOfficers || [] };
                 });
             });
@@ -384,10 +505,15 @@
                 memberCache.clear();
                 snapshot.docs.forEach(function (doc) {
                     var d = doc.data();
+                    var lvl = d.accessLevel;
+                    if (lvl === undefined || lvl === null) {
+                        var rm = { "owner": 40, "admin": 40, "supervisor": 20, "officer": 10 };
+                        lvl = rm[(d.role || "").toLowerCase()] || 10;
+                    }
                     memberCache.set(doc.id, {
                         displayName: d.displayName || d.email || doc.id,
                         email: d.email || "",
-                        accessLevel: d.accessLevel || ACCESS_LEVELS.OFFICER
+                        accessLevel: lvl
                     });
                 });
             })
@@ -686,7 +812,13 @@
             }));
         }).catch(function (err) {
             console.error("Failed to load transcripts", err);
-            transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="alert-triangle"></i><p>Failed to load transcripts.</p></div>';
+            if (err.message && err.message.indexOf("index") !== -1) {
+                var urlMatch = err.message.match(/(https:\/\/console\.firebase\.google\.com[^\s]+)/);
+                if (urlMatch) window.open(urlMatch[1]);
+                transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="loader-2" class="spinner"></i><p>Creating required index... Refresh in a moment.</p></div>';
+            } else {
+                transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="inbox"></i><p>No transcripts yet. Use Record or Test to add some.</p></div>';
+            }
             lucide.createIcons();
         });
     }
