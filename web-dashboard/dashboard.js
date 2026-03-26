@@ -1,6 +1,8 @@
 (function () {
     "use strict";
 
+    console.log("Dashboard script initializing...");
+
     // --------------- Firebase Config ---------------
     var firebaseConfig = {
         apiKey: "AIzaSyB8yR8BFV_aCEIavdVGXDBvEce61GzQWVM",
@@ -11,55 +13,10 @@
         appId: "1:742529576115:web:1e3d1a9fe8d4cae6d6d4c6"
     };
 
-    // --------------- Firebase SDK (compat CDN) ---------------
-    var FIREBASE_VERSION = "10.12.0";
-    var sdkScripts = [
-        "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-app-compat.js",
-        "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-auth-compat.js",
-        "https://www.gstatic.com/firebasejs/" + FIREBASE_VERSION + "/firebase-firestore-compat.js"
-    ];
-
-    function loadScript(src, cb) {
-        var s = document.createElement("script");
-        s.src = src;
-        s.onload = cb;
-        s.onerror = function () {
-            console.error("Failed to load " + src);
-        };
-        document.head.appendChild(s);
-    }
-
-    function loadScriptsSequentially(list, done) {
-        if (list.length === 0) { done(); return; }
-        loadScript(list[0], function () {
-            loadScriptsSequentially(list.slice(1), done);
-        });
-    }
-
-    loadScriptsSequentially(sdkScripts, boot);
-
     // --------------- DOM refs ---------------
-    var loginScreen = document.getElementById("login-screen");
-    var dashboardScreen = document.getElementById("dashboard-screen");
-    var setupScreen = document.getElementById("setup-screen");
-    var loginError = document.getElementById("login-error");
-    var userEmailSpan = document.getElementById("user-email");
-    var logoutBtn = document.getElementById("logout-btn");
-    var transcriptList = document.getElementById("transcript-list");
-    var filterStart = document.getElementById("filter-start");
-    var filterEnd = document.getElementById("filter-end");
-    var filterBtn = document.getElementById("filter-btn");
-    var clearFilterBtn = document.getElementById("clear-filter-btn");
-
-    // Setup screen refs
-    var setupUserEmail = document.getElementById("setup-user-email");
-    var createOrgName = document.getElementById("create-org-name");
-    var createOrgBtn = document.getElementById("create-org-btn");
-    var joinInviteCode = document.getElementById("join-invite-code");
-    var joinOrgBtn = document.getElementById("join-org-btn");
-    var setupError = document.getElementById("setup-error");
-    var setupLoading = document.getElementById("setup-loading");
-    var orgLabelText = document.getElementById("org-label-text");
+    var loginScreen, dashboardScreen, setupScreen, loginError, userEmailSpan, logoutBtn, transcriptList;
+    var filterStart, filterEnd, filterBtn, clearFilterBtn;
+    var setupUserEmail, createOrgName, createOrgBtn, joinInviteCode, joinOrgBtn, setupError, setupLoading, orgLabelText;
 
     var db = null;
     var auth = null;
@@ -86,22 +43,74 @@
         return LEVEL_NAMES[level] || "Unknown";
     }
 
+    function getInitials(name) {
+        if (!name) return "?";
+        var parts = name.split(/\s+/);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return name.substring(0, 2).toUpperCase();
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement("div");
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    function getHashOrgId() {
+        var hash = window.location.hash || "";
+        if (hash.indexOf("#org/") === 0) return hash.substring(5);
+        return null;
+    }
+
+    function setHashOrgId(orgId) {
+        if (orgId) window.location.hash = "org/" + orgId;
+        else window.location.hash = "";
+    }
+
     // --------------- Boot ---------------
     function boot() {
+        console.log("Booting dashboard...");
+        
+        // Initialize DOM refs
+        loginScreen = document.getElementById("login-screen");
+        dashboardScreen = document.getElementById("dashboard-screen");
+        setupScreen = document.getElementById("setup-screen");
+        loginError = document.getElementById("login-error");
+        userEmailSpan = document.getElementById("user-email");
+        logoutBtn = document.getElementById("logout-btn");
+        transcriptList = document.getElementById("transcript-list");
+        filterStart = document.getElementById("filter-start");
+        filterEnd = document.getElementById("filter-end");
+        filterBtn = document.getElementById("filter-btn");
+        clearFilterBtn = document.getElementById("clear-filter-btn");
+
+        setupUserEmail = document.getElementById("setup-user-email");
+        createOrgName = document.getElementById("create-org-name");
+        createOrgBtn = document.getElementById("create-org-btn");
+        joinInviteCode = document.getElementById("join-invite-code");
+        joinOrgBtn = document.getElementById("join-org-btn");
+        setupError = document.getElementById("setup-error");
+        setupLoading = document.getElementById("setup-loading");
+        orgLabelText = document.getElementById("org-label-text");
+
+        if (typeof firebase === 'undefined') {
+            console.error("Firebase SDK not found!");
+            return;
+        }
+
         firebase.initializeApp(firebaseConfig);
         auth = firebase.auth();
         db = firebase.firestore();
 
         auth.onAuthStateChanged(function (user) {
+            console.log("Auth state changed:", user ? user.email : "No user");
             if (user) {
-                userEmailSpan.textContent = user.email;
+                if (userEmailSpan) userEmailSpan.textContent = user.email;
                 
-                // 1. Check if we have a saved orgId in localStorage
-                var savedOrgId = localStorage.getItem("frontier_orgId");
-                if (savedOrgId) {
-                    enterOrg(user.uid, savedOrgId);
+                var targetOrgId = getHashOrgId();
+                if (targetOrgId) {
+                    enterOrg(user.uid, targetOrgId);
                 } else {
-                    // 2. No saved org, try to resolve automatically if they have any membership
                     resolveOrgMembership(user.uid).then(function (membership) {
                         if (membership) {
                             setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
@@ -118,45 +127,80 @@
             }
         });
 
-        document.getElementById("google-login-btn").addEventListener("click", handleGoogleLogin);
-        logoutBtn.addEventListener("click", handleLogout);
-        document.getElementById("back-to-home-btn").addEventListener("click", function () {
-            showSetupScreen(auth.currentUser);
-        });
-        filterBtn.addEventListener("click", function () { loadTranscripts(); });
-        clearFilterBtn.addEventListener("click", function () {
-            filterStart.value = "";
-            filterEnd.value = "";
-            loadTranscripts();
-        });
+        var googleBtn = document.getElementById("google-login-btn");
+        if (googleBtn) {
+            console.log("Attaching listener to google-login-btn");
+            googleBtn.addEventListener("click", function() {
+                console.log("Google Login clicked");
+                handleGoogleLogin();
+            });
+        } else {
+            console.error("Google Login button not found in DOM!");
+        }
+
+        if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
+        
+        var backToHome = document.getElementById("back-to-home-btn");
+        if (backToHome) {
+            backToHome.addEventListener("click", function () {
+                showSetupScreen(auth.currentUser);
+            });
+        }
+
+        if (filterBtn) filterBtn.addEventListener("click", function () { loadTranscripts(); });
+        if (clearFilterBtn) {
+            clearFilterBtn.addEventListener("click", function () {
+                if (filterStart) filterStart.value = "";
+                if (filterEnd) filterEnd.value = "";
+                loadTranscripts();
+            });
+        }
+
         initSetupScreen();
         initTestPanel();
         initRecordPanel();
 
         // Settings modal
-        document.getElementById("settings-btn").addEventListener("click", function () {
-            toggleSettingsModal(true);
-        });
-        document.getElementById("settings-close-btn").addEventListener("click", function () {
-            toggleSettingsModal(false);
-        });
-        document.getElementById("settings-overlay").addEventListener("click", function (e) {
-            if (e.target === e.currentTarget) toggleSettingsModal(false);
-        });
-        document.getElementById("generate-invite-btn").addEventListener("click", function () {
-            var level = parseInt(document.getElementById("invite-role-select").value, 10);
-            generateInvite(level);
-        });
+        var settingsBtn = document.getElementById("settings-btn");
+        if (settingsBtn) {
+            settingsBtn.addEventListener("click", function () {
+                toggleSettingsModal(true);
+            });
+        }
+        var settingsCloseBtn = document.getElementById("settings-close-btn");
+        if (settingsCloseBtn) {
+            settingsCloseBtn.addEventListener("click", function () {
+                toggleSettingsModal(false);
+            });
+        }
+        var settingsOverlay = document.getElementById("settings-overlay");
+        if (settingsOverlay) {
+            settingsOverlay.addEventListener("click", function (e) {
+                if (e.target === e.currentTarget) toggleSettingsModal(false);
+            });
+        }
+        var genInviteBtn = document.getElementById("generate-invite-btn");
+        if (genInviteBtn) {
+            genInviteBtn.addEventListener("click", function () {
+                var roleSel = document.getElementById("invite-role-select");
+                var level = roleSel ? parseInt(roleSel.value, 10) : 10;
+                generateInvite(level);
+            });
+        }
     }
 
     // --------------- Auth ---------------
     function handleGoogleLogin() {
-        loginError.hidden = true;
+        console.log("handleGoogleLogin executing...");
+        if (loginError) loginError.hidden = true;
         var provider = new firebase.auth.GoogleAuthProvider();
         auth.signInWithPopup(provider).catch(function (err) {
-            loginError.innerHTML = '<i data-lucide="alert-circle"></i> ' + friendlyAuthError(err.code);
-            loginError.hidden = false;
-            lucide.createIcons();
+            console.error("Login error:", err);
+            if (loginError) {
+                loginError.innerHTML = '<i data-lucide="alert-circle"></i> ' + friendlyAuthError(err.code);
+                loginError.hidden = false;
+            }
+            if (window.lucide) lucide.createIcons();
         });
     }
 
@@ -166,9 +210,9 @@
         assignedOfficers = [];
         currentOrgName = null;
         selectedMemberId = null;
-        localStorage.removeItem("frontier_orgId");
+        setHashOrgId(null);
         memberCache.clear();
-        orgLabelText.textContent = "Frontier Audio";
+        if (orgLabelText) orgLabelText.textContent = "Frontier Audio";
         auth.signOut();
     }
 
@@ -187,122 +231,45 @@
 
     // --------------- Screen switching ---------------
     function showLogin() {
-        loginScreen.hidden = false;
-        setupScreen.hidden = true;
-        dashboardScreen.hidden = true;
+        if (loginScreen) loginScreen.hidden = false;
+        if (setupScreen) setupScreen.hidden = true;
+        if (dashboardScreen) dashboardScreen.hidden = true;
         stopAutoRefresh();
     }
 
     function showSetupScreen(user) {
-        loginScreen.hidden = true;
-        setupScreen.hidden = false;
-        dashboardScreen.hidden = true;
-        setupUserEmail.textContent = user.email;
-        setupError.hidden = true;
-        setupLoading.hidden = true;
+        setHashOrgId(null);
+        if (loginScreen) loginScreen.hidden = true;
+        if (setupScreen) setupScreen.hidden = false;
+        if (dashboardScreen) dashboardScreen.hidden = true;
+        
+        var setupDisplayName = document.getElementById("setup-user-display-name");
+        var setupInitials = document.getElementById("user-avatar-initials");
+        if (setupDisplayName) setupDisplayName.textContent = user.displayName || user.email.split('@')[0];
+        if (setupInitials) setupInitials.textContent = getInitials(user.displayName || user.email);
+        
+        var heroTitle = document.getElementById("home-hero-title");
+        if (heroTitle) heroTitle.textContent = "Welcome back, " + (user.displayName || user.email.split('@')[0]) + ".";
+
+        if (setupError) setupError.hidden = true;
+        if (setupLoading) setupLoading.hidden = true;
         stopAutoRefresh();
         loadUserOrgs(user.uid);
     }
 
-    function loadUserOrgs(uid) {
-        var container = document.getElementById("your-orgs");
-        var list = document.getElementById("your-orgs-list");
-        container.hidden = true;
-        list.innerHTML = "";
-
-        // Query ALL memberships for this user via Collection Group query
-        // This finds both orgs they created and orgs they joined
-        db.collectionGroup("members").where("uid", "==", uid).get()
-            .then(function (snapshot) {
-                if (snapshot.empty) return;
-
-                var orgPromises = snapshot.docs.map(function (memberDoc) {
-                    var orgId = memberDoc.ref.parent.parent.id;
-                    return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
-                        return {
-                            id: orgId,
-                            name: (orgDoc.exists && orgDoc.data().name) ? orgDoc.data().name : orgId
-                        };
-                    });
-                });
-
-                return Promise.all(orgPromises).then(function (orgs) {
-                    // Filter out duplicates (if any) and sort by name
-                    var uniqueOrgs = [];
-                    var seenIds = new Set();
-                    orgs.forEach(function (o) {
-                        if (!seenIds.has(o.id)) {
-                            seenIds.add(o.id);
-                            uniqueOrgs.push(o);
-                        }
-                    });
-
-                    uniqueOrgs.sort(function (a, b) {
-                        return a.name.localeCompare(b.name);
-                    });
-
-                    // Backfill user doc for fast login/rules next time
-                    var orgIds = uniqueOrgs.map(function (o) { return o.id; });
-                    db.collection("users").doc(uid).set({ orgs: orgIds }, { merge: true }).catch(function () {});
-
-                    return renderOrgList(uid, uniqueOrgs, container, list);
-                });
-            })
-            .catch(function (err) {
-                console.error("Failed to load user orgs", err);
-            });
-    }
-
-    function renderOrgList(uid, orgs, container, list) {
-        if (orgs.length === 0) return;
-        container.hidden = false;
-        orgs.forEach(function (org) {
-            var row = document.createElement("button");
-            row.className = "your-org-row";
-            row.innerHTML = '<span class="your-org-name">' + escapeHtml(org.name) + '</span><i data-lucide="chevron-right"></i>';
-            row.addEventListener("click", function () {
-                enterOrg(uid, org.id);
-            });
-            list.appendChild(row);
-        });
-        if (window.lucide) lucide.createIcons();
-    }
-
-    function enterOrg(uid, orgId) {
-        document.getElementById("setup-loading").hidden = false;
-        db.collection("orgs").doc(orgId).collection("members").doc(uid).get()
-            .then(function (memberDoc) {
-                if (!memberDoc.exists) {
-                    document.getElementById("setup-error").textContent = "You are no longer a member of this organization.";
-                    document.getElementById("setup-error").hidden = false;
-                    document.getElementById("setup-loading").hidden = true;
-                    return;
-                }
-                return buildMembership(memberDoc, orgId).then(function (membership) {
-                    setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
-                    showDashboard(auth.currentUser);
-                });
-            })
-            .catch(function (err) {
-                document.getElementById("setup-error").textContent = err.message || "Failed to enter organization.";
-                document.getElementById("setup-error").hidden = false;
-                document.getElementById("setup-loading").hidden = true;
-            });
-    }
-
     function showDashboard(user) {
-        loginScreen.hidden = true;
-        setupScreen.hidden = true;
-        dashboardScreen.hidden = false;
-        userEmailSpan.textContent = user.email;
+        if (loginScreen) loginScreen.hidden = true;
+        if (setupScreen) setupScreen.hidden = true;
+        if (dashboardScreen) dashboardScreen.hidden = false;
 
-        // Level-based UI gating
-        document.getElementById("settings-btn").hidden = !hasPermission(ACCESS_LEVELS.ADMIN);
-        document.getElementById("toggle-record-btn").hidden = (currentUserLevel !== ACCESS_LEVELS.OFFICER);
+        var userEmail = document.getElementById("user-email");
+        if (userEmail) userEmail.textContent = user.email;
 
-        // Members sidebar: visible for supervisors and above
+        var recordBtn = document.getElementById("toggle-record-btn");
+        if (recordBtn) recordBtn.hidden = (currentUserLevel !== ACCESS_LEVELS.OFFICER);
+
         var sidebar = document.getElementById("members-sidebar");
-        sidebar.hidden = !hasPermission(ACCESS_LEVELS.SUPERVISOR);
+        if (sidebar) sidebar.hidden = !hasPermission(ACCESS_LEVELS.SUPERVISOR);
 
         loadMemberCache().then(function () {
             if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
@@ -315,24 +282,21 @@
 
     // --------------- Org Membership ---------------
     function resolveOrgMembership(uid) {
-        // Query ALL memberships for this user via Collection Group query
-        return db.collectionGroup("members").where("uid", "==", uid).limit(1).get()
-            .then(function (snapshot) {
-                if (snapshot.empty) return null;
-                var memberDoc = snapshot.docs[0];
-                var orgId = memberDoc.ref.parent.parent.id;
-                return buildMembership(memberDoc, orgId);
+        return db.collection("users").doc(uid).get()
+            .then(function (userDoc) {
+                var orgIds = (userDoc.exists && userDoc.data().orgs) ? userDoc.data().orgs : [];
+                if (orgIds.length === 0) return null;
+                var orgId = orgIds[0];
+                return db.collection("orgs").doc(orgId).collection("members").doc(uid).get()
+                    .then(function (memberDoc) {
+                        if (!memberDoc.exists) return null;
+                        return buildMembership(memberDoc, orgId);
+                    });
             })
             .catch(function (err) {
                 console.warn("Org membership resolution failed:", err.message);
                 return null;
             });
-    }
-
-    function addUserOrg(uid, orgId) {
-        return db.collection("users").doc(uid).set({
-            orgs: firebase.firestore.FieldValue.arrayUnion(orgId)
-        }, { merge: true });
     }
 
     function buildMembership(memberDoc, orgId) {
@@ -343,13 +307,11 @@
             level = roleMap[(data.role || "").toLowerCase()] || 10;
         }
         return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
-            var orgName = orgDoc.exists ? orgDoc.data().name : orgId;
-            localStorage.setItem("frontier_orgId", orgId);
             return {
                 orgId: orgId,
                 accessLevel: level,
                 assignedOfficers: data.assignedOfficers || [],
-                orgName: orgName
+                orgName: orgDoc.exists ? orgDoc.data().name : orgId
             };
         });
     }
@@ -359,408 +321,229 @@
         currentUserLevel = accessLevel;
         assignedOfficers = officers || [];
         currentOrgName = orgName || orgId;
-        orgLabelText.textContent = currentOrgName;
-        localStorage.setItem("frontier_orgId", orgId);
+        if (orgLabelText) orgLabelText.textContent = currentOrgName;
+        setHashOrgId(orgId);
     }
 
-    function handleCreateOrg(orgName) {
+    function enterOrg(uid, orgId) {
+        if (setupLoading) setupLoading.hidden = false;
+        db.collection("orgs").doc(orgId).collection("members").doc(uid).get()
+            .then(function (memberDoc) {
+                if (!memberDoc.exists) {
+                    if (setupError) {
+                        setupError.textContent = "You are no longer a member of this organization.";
+                        setupError.hidden = false;
+                    }
+                    if (setupLoading) setupLoading.hidden = true;
+                    return;
+                }
+                return buildMembership(memberDoc, orgId).then(function (membership) {
+                    setOrgContext(membership.orgId, membership.accessLevel, membership.assignedOfficers, membership.orgName);
+                    showDashboard(auth.currentUser);
+                });
+            })
+            .catch(function (err) {
+                if (setupError) {
+                    setupError.textContent = "Error entering organization: " + err.message;
+                    setupError.hidden = false;
+                }
+                if (setupLoading) setupLoading.hidden = true;
+            });
+    }
+
+    // --------------- Organizations (Setup) ---------------
+    function initSetupScreen() {
+        var yoursTab = document.querySelector('[data-tab="yours"]');
+        var exploreTab = document.querySelector('[data-tab="explore"]');
+        var createTab = document.querySelector('[data-tab="create"]');
+        var joinTab = document.querySelector('[data-tab="join"]');
+
+        function switchTab(tabId) {
+            document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
+            document.querySelectorAll(".setup-tab-content").forEach(function (c) { c.classList.remove("active"); });
+            var activeNav = document.querySelector('[data-tab="' + tabId + '"]');
+            var activeContent = document.getElementById(tabId + "-org-form") || document.getElementById(tabId + "-tab-form");
+            if (activeNav) activeNav.classList.add("active");
+            if (activeContent) activeContent.classList.add("active");
+            
+            var label = document.getElementById("current-tab-label");
+            if (label && activeNav) label.textContent = activeNav.textContent.trim();
+        }
+
+        if (yoursTab) yoursTab.onclick = function () { switchTab("yours"); loadUserOrgs(auth.currentUser.uid); };
+        if (exploreTab) exploreTab.onclick = function () { switchTab("explore"); };
+        if (createTab) createTab.onclick = function () { switchTab("create"); };
+        if (joinTab) joinTab.onclick = function () { switchTab("join"); };
+
+        if (createOrgBtn) {
+            createOrgBtn.onclick = function () {
+                var name = createOrgName.value.trim();
+                var desc = document.getElementById("create-org-desc").value.trim();
+                var vis = document.getElementById("create-org-visibility").value;
+                if (!name) return alert("Organization name required");
+                handleCreateOrg(name, desc, vis);
+            };
+        }
+
+        if (joinOrgBtn) {
+            joinOrgBtn.onclick = function () {
+                var code = joinInviteCode.value.trim();
+                if (!code) return alert("Invite code required");
+                handleJoinOrg(code);
+            };
+        }
+
+        var yoursList = document.getElementById("your-orgs-list");
+        if (yoursList) {
+            yoursList.addEventListener("click", function (e) {
+                var row = e.target.closest(".org-item-row");
+                if (!row) return;
+                var orgId = row.dataset.orgId;
+                if (orgId) {
+                    row.style.opacity = "0.5";
+                    var iconWrapper = row.querySelector(".icon-wrapper");
+                    if (iconWrapper) iconWrapper.innerHTML = '<i data-lucide="loader-2" class="spinner"></i>';
+                    if (window.lucide) lucide.createIcons();
+                    enterOrg(auth.currentUser.uid, orgId);
+                }
+            });
+        }
+    }
+
+    function loadUserOrgs(uid) {
+        var list = document.getElementById("your-orgs-list");
+        if (!list) return;
+        list.innerHTML = '<div class="loading-placeholder"><i data-lucide="loader-2" class="spinner"></i><span>Fetching your memberships...</span></div>';
+        if (window.lucide) lucide.createIcons();
+
+        db.collectionGroup("members").where("uid", "==", uid).get()
+            .then(function (snapshot) {
+                if (snapshot.empty) {
+                    list.innerHTML = '<div class="empty-list-state"><p>You are not a member of any organizations.</p></div>';
+                    return;
+                }
+                var orgPromises = snapshot.docs.map(function (doc) {
+                    var orgId = doc.ref.parent.parent.id;
+                    return db.collection("orgs").doc(orgId).get().then(function (orgDoc) {
+                        return {
+                            id: orgId,
+                            name: orgDoc.exists ? orgDoc.data().name : orgId,
+                            visibility: orgDoc.exists ? orgDoc.data().visibility : "private",
+                            description: orgDoc.exists ? orgDoc.data().description : ""
+                        };
+                    });
+                });
+                return Promise.all(orgPromises).then(function (orgs) {
+                    renderOrgList(uid, orgs, null, list);
+                });
+            })
+            .catch(function (err) {
+                list.innerHTML = '<div class="global-error-banner">Failed to load organizations: ' + err.message + '</div>';
+            });
+    }
+
+    function renderOrgList(uid, orgs, container, list) {
+        if (!list) return;
+        if (orgs.length === 0) {
+            list.innerHTML = '<div class="empty-list-state"><p>No organizations found.</p></div>';
+            return;
+        }
+        var fragment = document.createDocumentFragment();
+        orgs.forEach(function (org) {
+            var row = document.createElement("button");
+            row.className = "org-item-row";
+            row.dataset.orgId = org.id;
+            var initials = getInitials(org.name);
+            var isPublic = org.visibility === "public";
+            var html = '<div class="org-item-left">' +
+                '<div class="org-avatar-box">' + escapeHtml(initials) + '</div>' +
+                '<div class="org-item-info">' +
+                '<div class="org-item-title">' + escapeHtml(org.name) + ' <span class="visibility-badge ' + (isPublic ? 'public' : '') + '">' + (isPublic ? 'Public' : 'Private') + '</span></div>' +
+                (org.description ? '<div class="org-item-desc">' + escapeHtml(org.description) + '</div>' : '') +
+                '</div></div>' +
+                '<span class="icon-wrapper"><i data-lucide="chevron-right"></i></span>';
+            row.innerHTML = html;
+            fragment.appendChild(row);
+        });
+        list.innerHTML = "";
+        list.appendChild(fragment);
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function handleCreateOrg(orgName, description, visibility) {
         var user = auth.currentUser;
         var orgRef = db.collection("orgs").doc();
         var orgId = orgRef.id;
-        // Sequential: org must exist before member doc (rules check org.createdBy)
+        if (setupLoading) setupLoading.hidden = false;
+        
         return orgRef.set({
             name: orgName,
+            description: description || "",
+            visibility: visibility || "private",
             createdBy: user.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         }).then(function () {
             return db.collection("orgs").doc(orgId).collection("members").doc(user.uid).set({
                 uid: user.uid,
                 email: user.email,
-                displayName: user.displayName || user.email,
-                accessLevel: ACCESS_LEVELS.OWNER,
+                displayName: user.displayName || user.email.split('@')[0],
+                role: "owner",
+                accessLevel: 40,
                 joinedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
         }).then(function () {
-            return addUserOrg(user.uid, orgId);
+            return db.collection("users").doc(user.uid).set({
+                orgs: firebase.firestore.FieldValue.arrayUnion(orgId)
+            }, { merge: true });
         }).then(function () {
-            return orgId;
+            return enterOrg(user.uid, orgId);
+        }).catch(function (err) {
+            if (setupError) {
+                setupError.textContent = "Error creating organization: " + err.message;
+                setupError.hidden = false;
+            }
+            if (setupLoading) setupLoading.hidden = true;
         });
     }
 
     function handleJoinOrg(inviteCode) {
         var user = auth.currentUser;
-        return db.collectionGroup("invites")
-            .where("code", "==", inviteCode)
-            .where("used", "==", false)
-            .limit(1)
-            .get()
-            .then(function (snapshot) {
-                if (snapshot.empty) {
-                    throw new Error("Invalid or expired invite code.");
-                }
-                var inviteDoc = snapshot.docs[0];
-                var inviteData = inviteDoc.data();
-                var orgId = inviteDoc.ref.parent.parent.id;
-                var accessLevel = inviteData.accessLevel || ACCESS_LEVELS.OFFICER;
+        if (setupLoading) setupLoading.hidden = false;
 
-                var batch = db.batch();
-                batch.set(db.collection("orgs").doc(orgId).collection("members").doc(user.uid), {
+        db.collectionGroup("invites").where("code", "==", inviteCode).where("used", "==", false).get()
+            .then(function (snapshot) {
+                if (snapshot.empty) throw new Error("Invalid or expired invite code.");
+                var inviteDoc = snapshot.docs[0];
+                var orgId = inviteDoc.ref.parent.parent.id;
+                var inviteData = inviteDoc.data();
+
+                return db.collection("orgs").doc(orgId).collection("members").doc(user.uid).set({
                     uid: user.uid,
                     email: user.email,
-                    accessLevel: accessLevel,
-                    assignedOfficers: inviteData.assignedOfficers || [],
+                    displayName: user.displayName || user.email.split('@')[0],
+                    role: inviteData.roleName || "officer",
+                    accessLevel: inviteData.accessLevel || 10,
                     joinedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                batch.update(inviteDoc.ref, {
-                    used: true,
-                    usedBy: user.uid,
-                    usedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                return batch.commit().then(function () {
-                    return addUserOrg(user.uid, orgId);
                 }).then(function () {
-                    return { orgId: orgId, accessLevel: accessLevel, assignedOfficers: inviteData.assignedOfficers || [] };
-                });
-            });
-    }
-
-    function transcriptsPath() {
-        return "transcripts";
-    }
-
-    function initSetupScreen() {
-        // Tab switching
-        var tabs = setupScreen.querySelectorAll(".setup-tab");
-        var tabContents = setupScreen.querySelectorAll(".setup-tab-content");
-        tabs.forEach(function (tab) {
-            tab.addEventListener("click", function () {
-                tabs.forEach(function (t) { t.classList.remove("active"); });
-                tabContents.forEach(function (tc) { tc.classList.remove("active"); });
-                tab.classList.add("active");
-                var targetId = tab.getAttribute("data-tab") === "create" ? "create-org-form" : "join-org-form";
-                document.getElementById(targetId).classList.add("active");
-                setupError.hidden = true;
-            });
-        });
-
-        // Create org
-        createOrgBtn.addEventListener("click", function () {
-            var name = createOrgName.value.trim();
-            if (!name) {
-                setupError.textContent = "Please enter an organization name.";
-                setupError.hidden = false;
-                return;
-            }
-            setupError.hidden = true;
-            setupLoading.hidden = false;
-            createOrgBtn.disabled = true;
-
-            handleCreateOrg(name).then(function (orgId) {
-                setOrgContext(orgId, ACCESS_LEVELS.OWNER, [], name);
-                showDashboard(auth.currentUser);
-            }).catch(function (err) {
-                setupError.textContent = err.message || "Failed to create organization.";
-                setupError.hidden = false;
-            }).finally(function () {
-                setupLoading.hidden = true;
-                createOrgBtn.disabled = false;
-            });
-        });
-
-        // Join org
-        joinOrgBtn.addEventListener("click", function () {
-            var code = joinInviteCode.value.trim();
-            if (!code) {
-                setupError.textContent = "Please enter an invite code.";
-                setupError.hidden = false;
-                return;
-            }
-            setupError.hidden = true;
-            setupLoading.hidden = false;
-            joinOrgBtn.disabled = true;
-
-            handleJoinOrg(code).then(function (result) {
-                return db.collection("orgs").doc(result.orgId).get().then(function (orgDoc) {
-                    var orgName = orgDoc.exists ? orgDoc.data().name : result.orgId;
-                    setOrgContext(result.orgId, result.accessLevel, result.assignedOfficers, orgName);
-                    showDashboard(auth.currentUser);
-                });
-            }).catch(function (err) {
-                setupError.textContent = err.message || "Failed to join organization.";
-                setupError.hidden = false;
-            }).finally(function () {
-                setupLoading.hidden = true;
-                joinOrgBtn.disabled = false;
-            });
-        });
-
-        if (window.lucide) lucide.createIcons();
-    }
-
-    // --------------- Member Cache ---------------
-    function loadMemberCache() {
-        if (!currentOrgId) return Promise.resolve();
-        return db.collection("orgs/" + currentOrgId + "/members").get()
-            .then(function (snapshot) {
-                memberCache.clear();
-                snapshot.docs.forEach(function (doc) {
-                    var d = doc.data();
-                    var lvl = d.accessLevel;
-                    if (lvl === undefined || lvl === null) {
-                        var rm = { "owner": 40, "admin": 40, "supervisor": 20, "officer": 10 };
-                        lvl = rm[(d.role || "").toLowerCase()] || 10;
-                    }
-                    memberCache.set(doc.id, {
-                        displayName: d.displayName || d.email || doc.id,
-                        email: d.email || "",
-                        accessLevel: lvl
-                    });
+                    return inviteDoc.ref.update({ used: true, usedBy: user.uid, usedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                }).then(function () {
+                    return db.collection("users").doc(user.uid).set({
+                        orgs: firebase.firestore.FieldValue.arrayUnion(orgId)
+                    }, { merge: true });
+                }).then(function () {
+                    return enterOrg(user.uid, orgId);
                 });
             })
             .catch(function (err) {
-                console.error("Failed to load member cache", err);
-            });
-    }
-
-    // --------------- Members Sidebar ---------------
-    function getInitials(name) {
-        var parts = name.split(/\s+/);
-        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-        return name.substring(0, 2).toUpperCase();
-    }
-
-    function getLevelClassName(level) {
-        var name = LEVEL_NAMES[level];
-        return name ? name.toLowerCase() : "officer";
-    }
-
-    function renderMembersSidebar() {
-        var container = document.getElementById("sidebar-member-list");
-        var html = "";
-
-        memberCache.forEach(function (member, uid) {
-            var isActive = (uid === selectedMemberId);
-            var initials = getInitials(member.displayName);
-            var levelClass = getLevelClassName(member.accessLevel);
-
-            html += '<div class="sidebar-member-row' + (isActive ? ' active' : '') + '" data-uid="' + uid + '" role="button" tabindex="0">';
-            html += '<div class="sidebar-avatar">' + escapeHtml(initials) + '</div>';
-            html += '<div class="sidebar-member-info">';
-            html += '<div class="sidebar-member-name">' + escapeHtml(member.displayName) + '</div>';
-            html += '<div class="sidebar-member-email">' + escapeHtml(member.email) + '</div>';
-            html += '</div>';
-            html += '<span class="role-badge ' + levelClass + '">' + getLevelName(member.accessLevel) + '</span>';
-            html += '</div>';
-        });
-
-        container.innerHTML = html;
-
-        // Wire click handlers on member rows
-        container.querySelectorAll(".sidebar-member-row").forEach(function (row) {
-            row.addEventListener("click", function () {
-                selectMember(row.getAttribute("data-uid"));
-            });
-        });
-
-        // Wire "All Members" button
-        var allMembersBtn = document.getElementById("sidebar-all-members");
-        allMembersBtn.onclick = function () {
-            selectMember(null);
-        };
-
-        // Update active states
-        updateSidebarActiveStates();
-
-        // Wire sidebar toggle
-        var toggleBtn = document.getElementById("sidebar-toggle-btn");
-        toggleBtn.onclick = function () {
-            var sidebar = document.getElementById("members-sidebar");
-            sidebar.classList.toggle("sidebar-collapsed");
-            var icon = toggleBtn.querySelector("i");
-            if (sidebar.classList.contains("sidebar-collapsed")) {
-                icon.setAttribute("data-lucide", "panel-left-open");
-            } else {
-                icon.setAttribute("data-lucide", "panel-left-close");
-            }
-            if (window.lucide) lucide.createIcons();
-        };
-
-        if (window.lucide) lucide.createIcons();
-    }
-
-    function selectMember(uid) {
-        selectedMemberId = uid;
-        updateSidebarActiveStates();
-        loadTranscripts();
-    }
-
-    function updateSidebarActiveStates() {
-        var allBtn = document.getElementById("sidebar-all-members");
-        var rows = document.querySelectorAll("#sidebar-member-list .sidebar-member-row");
-
-        if (!selectedMemberId) {
-            allBtn.classList.add("active");
-        } else {
-            allBtn.classList.remove("active");
-        }
-
-        rows.forEach(function (row) {
-            if (row.getAttribute("data-uid") === selectedMemberId) {
-                row.classList.add("active");
-            } else {
-                row.classList.remove("active");
-            }
-        });
-
-        // Show/hide filter indicator
-        var header = document.querySelector(".sidebar-header");
-        var indicator = header.querySelector(".sidebar-filter-active");
-        if (selectedMemberId) {
-            if (!indicator) {
-                indicator = document.createElement("span");
-                indicator.className = "sidebar-filter-active";
-                header.querySelector(".sidebar-title").appendChild(indicator);
-            }
-        } else if (indicator) {
-            indicator.remove();
-        }
-    }
-
-    // --------------- Settings Modal ---------------
-    function toggleSettingsModal(open) {
-        var overlay = document.getElementById("settings-overlay");
-        overlay.hidden = !open;
-        if (open) {
-            renderMemberList();
-            document.getElementById("invite-code-display").innerHTML = "";
-            if (window.lucide) lucide.createIcons();
-        }
-    }
-
-    function renderMemberList() {
-        var container = document.getElementById("member-list");
-        var currentUid = auth.currentUser ? auth.currentUser.uid : null;
-        var html = "";
-
-        memberCache.forEach(function (member, uid) {
-            var isCurrentUser = (uid === currentUid);
-            var levelName = getLevelName(member.accessLevel).toLowerCase();
-            html += '<div class="member-row" data-uid="' + uid + '">';
-            html += '<div class="member-info">';
-            html += '<div class="member-name">' + escapeHtml(member.displayName) + '</div>';
-            html += '<div class="member-email">' + escapeHtml(member.email) + '</div>';
-            html += '</div>';
-            html += '<span class="role-badge ' + levelName + '">' + getLevelName(member.accessLevel) + '</span>';
-            html += '<select class="member-role-select" data-uid="' + uid + '"' + (isCurrentUser ? ' disabled' : '') + '>';
-            [ACCESS_LEVELS.OWNER, ACCESS_LEVELS.ADMIN, ACCESS_LEVELS.SUPERVISOR, ACCESS_LEVELS.OFFICER].forEach(function (lvl) {
-                html += '<option value="' + lvl + '"' + (lvl === member.accessLevel ? ' selected' : '') + '>' + getLevelName(lvl) + '</option>';
-            });
-            html += '</select>';
-            if (!isCurrentUser) {
-                html += '<button class="member-remove-btn" data-uid="' + uid + '" title="Remove member">';
-                html += '<i data-lucide="trash-2"></i>';
-                html += '</button>';
-            }
-            html += '</div>';
-        });
-
-        if (memberCache.size === 0) {
-            html = '<div class="empty-state" style="padding:24px"><p>No members found.</p></div>';
-        }
-
-        container.innerHTML = html;
-        if (window.lucide) lucide.createIcons();
-
-        container.querySelectorAll(".member-role-select").forEach(function (sel) {
-            sel.addEventListener("change", function () {
-                changeMemberRole(sel.getAttribute("data-uid"), sel.value);
-            });
-        });
-
-        // Wire remove listeners
-        container.querySelectorAll(".member-remove-btn").forEach(function (btn) {
-            btn.addEventListener("click", function () {
-                removeMember(btn.getAttribute("data-uid"));
-            });
-        });
-    }
-
-    function changeMemberRole(uid, newLevel) {
-        var level = parseInt(newLevel, 10);
-        db.doc("orgs/" + currentOrgId + "/members/" + uid).update({ accessLevel: level })
-            .then(function () {
-                var cached = memberCache.get(uid);
-                if (cached) cached.accessLevel = level;
-                renderMemberList();
-                if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
-                    renderMembersSidebar();
+                if (setupError) {
+                    setupError.textContent = err.message;
+                    setupError.hidden = false;
                 }
-            })
-            .catch(function (err) {
-                console.error("Failed to change role", err);
-                alert("Failed to update role: " + err.message);
+                if (setupLoading) setupLoading.hidden = true;
             });
     }
 
-    function removeMember(uid) {
-        var member = memberCache.get(uid);
-        var name = member ? member.displayName : uid;
-        if (!confirm("Remove " + name + " from this organization?")) return;
-
-        db.doc("orgs/" + currentOrgId + "/members/" + uid).delete()
-            .then(function () {
-                memberCache.delete(uid);
-                if (selectedMemberId === uid) {
-                    selectMember(null);
-                }
-                renderMemberList();
-                if (hasPermission(ACCESS_LEVELS.SUPERVISOR)) {
-                    renderMembersSidebar();
-                }
-            })
-            .catch(function (err) {
-                console.error("Failed to remove member", err);
-                alert("Failed to remove member: " + err.message);
-            });
-    }
-
-    function generateInvite(accessLevel) {
-        var display = document.getElementById("invite-code-display");
-        var btn = document.getElementById("generate-invite-btn");
-        btn.disabled = true;
-        display.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">Generating...</span>';
-
-        db.collection("orgs/" + currentOrgId + "/invites").add({
-            accessLevel: accessLevel,
-            createdBy: auth.currentUser.uid,
-            createdAt: Date.now(),
-            used: false
-        }).then(function (docRef) {
-            var code = docRef.id;
-            display.innerHTML = '<span class="invite-code-text">' + escapeHtml(code) + '</span>'
-                + '<button class="copy-btn" id="copy-invite-btn"><i data-lucide="copy"></i> Copy</button>';
-            if (window.lucide) lucide.createIcons();
-            document.getElementById("copy-invite-btn").addEventListener("click", function () {
-                navigator.clipboard.writeText(code).then(function () {
-                    var copyBtn = document.getElementById("copy-invite-btn");
-                    copyBtn.classList.add("copied");
-                    copyBtn.innerHTML = '<i data-lucide="check"></i> Copied';
-                    if (window.lucide) lucide.createIcons();
-                    setTimeout(function () {
-                        copyBtn.classList.remove("copied");
-                        copyBtn.innerHTML = '<i data-lucide="copy"></i> Copy';
-                        if (window.lucide) lucide.createIcons();
-                    }, 2000);
-                });
-            });
-        }).catch(function (err) {
-            display.innerHTML = '<span style="color:var(--error);font-size:13px">Error: ' + escapeHtml(err.message) + '</span>';
-        }).finally(function () {
-            btn.disabled = false;
-        });
-    }
-
-    // --------------- Auto-refresh ---------------
+    // --------------- Transcripts (Dashboard) ---------------
     function startAutoRefresh() {
         stopAutoRefresh();
         refreshTimer = setInterval(function () {
@@ -775,27 +558,25 @@
         }
     }
 
-    // --------------- Data loading ---------------
+    function transcriptsPath() {
+        if (currentOrgId) return "orgs/" + currentOrgId + "/transcripts";
+        return "transcripts";
+    }
+
     function loadTranscripts() {
-        var col = db.collection(transcriptsPath());
-        var query = col.orderBy("timestamp", "desc").limit(500);
+        var list = document.getElementById("transcript-list");
+        if (!list) return;
 
-        if (currentOrgId) {
-            query = query.where("orgId", "==", currentOrgId);
-        }
+        var query = db.collection(transcriptsPath()).orderBy("timestamp", "desc");
 
-        // Member filter from sidebar takes priority
         if (selectedMemberId) {
-            query = query.where("recordedBy", "==", selectedMemberId);
+            query = query.where("userId", "==", selectedMemberId);
         } else if (currentUserLevel === ACCESS_LEVELS.OFFICER) {
-            query = query.where("recordedBy", "==", auth.currentUser.uid);
-        } else if (currentUserLevel === ACCESS_LEVELS.SUPERVISOR && assignedOfficers.length > 0) {
-            query = query.where("recordedBy", "in", assignedOfficers);
+            query = query.where("userId", "==", auth.currentUser.uid);
         }
-        // admin/owner without selectedMemberId: no additional recordedBy filter
 
-        var startDate = filterStart.value;
-        var endDate = filterEnd.value;
+        var startDate = filterStart ? filterStart.value : null;
+        var endDate = filterEnd ? filterEnd.value : null;
 
         if (startDate) {
             var startMs = new Date(startDate).getTime();
@@ -806,755 +587,449 @@
             query = query.where("timestamp", "<=", endMs);
         }
 
-        query.get().then(function (snapshot) {
+        query.limit(100).get().then(function (snapshot) {
             renderTranscripts(snapshot.docs.map(function (doc) {
                 return Object.assign({ id: doc.id }, doc.data());
             }));
         }).catch(function (err) {
-            console.error("Failed to load transcripts", err);
-            if (err.message && err.message.indexOf("index") !== -1) {
-                var urlMatch = err.message.match(/(https:\/\/console\.firebase\.google\.com[^\s]+)/);
-                if (urlMatch) window.open(urlMatch[1]);
-                transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="loader-2" class="spinner"></i><p>Creating required index... Refresh in a moment.</p></div>';
-            } else {
-                transcriptList.innerHTML = '<div class="empty-state"><i data-lucide="inbox"></i><p>No transcripts yet. Use Record or Test to add some.</p></div>';
-            }
-            lucide.createIcons();
+            console.error("Transcript load failed", err);
+            list.innerHTML = '<div class="empty-state"><p>Error loading transcripts: ' + err.message + '</p></div>';
         });
     }
 
-    // --------------- Conversation Clustering (content + time) ---------------
-    var STOP_WORDS = new Set([
-        "a","an","the","is","are","was","were","be","been","being","have","has","had",
-        "do","does","did","will","would","shall","should","may","might","can","could",
-        "i","me","my","we","our","you","your","he","him","his","she","her","it","its",
-        "they","them","their","this","that","these","those","am","not","no","or","and",
-        "but","if","then","so","at","by","for","from","in","into","of","on","to","with",
-        "about","up","out","off","over","under","again","further","just","also","very",
-        "too","quite","really","here","there","when","where","how","what","which","who",
-        "all","any","both","each","every","some","such","than","other","only","own",
-        "same","more","most","much","many","as","like","get","got","go","went","going",
-        "said","told","asked","let","see","saw","know","knew","think","thought","come",
-        "came","take","took","make","made","give","gave","put","set","still","back",
-        "well","way","because","through","between","after","before","around","down"
-    ]);
-
-    function extractKeywords(text) {
-        if (!text) return [];
-        return text.toLowerCase()
-            .replace(/[^a-z0-9\s]/g, " ")
-            .split(/\s+/)
-            .filter(function (w) { return w.length > 2 && !STOP_WORDS.has(w); });
-    }
-
-    function jaccardSimilarity(setA, setB) {
-        if (setA.length === 0 && setB.length === 0) return 0;
-        var a = new Set(setA);
-        var b = new Set(setB);
-        var intersection = 0;
-        a.forEach(function (w) { if (b.has(w)) intersection++; });
-        var union = new Set(setA.concat(setB)).size;
-        return union === 0 ? 0 : intersection / union;
-    }
-
-    function timeSimilarity(gapMs) {
-        // 1.0 at 0 gap, decays exponentially. ~0.5 at 2 min, ~0.1 at 5 min, ~0 at 10 min
-        return Math.exp(-gapMs / 150000);
-    }
-
-    function clusterIntoConversations(items) {
-        if (items.length === 0) return [];
-
-        var sorted = items.slice().sort(function (a, b) {
-            return (a.timestamp || 0) - (b.timestamp || 0);
-        });
-
-        var conversations = [];
-        var current = {
-            items: [sorted[0]],
-            start: sorted[0].timestamp || 0,
-            end: sorted[0].timestamp || 0,
-            keywords: extractKeywords(sorted[0].correctedText || sorted[0].text)
-        };
-
-        for (var i = 1; i < sorted.length; i++) {
-            var item = sorted[i];
-            var ts = item.timestamp || 0;
-            var gap = ts - current.end;
-            var itemText = item.correctedText || item.text || "";
-            var itemKeywords = extractKeywords(itemText);
-
-            // Combine all keywords from current conversation for broader matching
-            var contentScore = jaccardSimilarity(current.keywords, itemKeywords);
-            var timeScore = timeSimilarity(gap);
-
-            // Weighted: content matters more than time
-            var continuity = (contentScore * 0.6) + (timeScore * 0.4);
-
-            // Hard cutoff: >10 min gap always splits regardless of content
-            var hardSplit = gap > 10 * 60 * 1000;
-
-            if (hardSplit || continuity < 0.15) {
-                conversations.push(current);
-                current = {
-                    items: [item],
-                    start: ts,
-                    end: ts,
-                    keywords: itemKeywords
-                };
-            } else {
-                current.items.push(item);
-                current.end = ts;
-                // Accumulate keywords for the conversation
-                current.keywords = current.keywords.concat(itemKeywords);
-            }
-        }
-        conversations.push(current);
-
-        conversations.reverse();
-        return conversations;
-    }
-
-    function generateConversationTitle(convo) {
-        // Find the most keyword-dense chunk as the "topic" chunk
-        var bestText = "";
-        var bestScore = -1;
-        convo.items.forEach(function (item) {
-            var text = item.correctedText || item.text || "";
-            var kw = extractKeywords(text);
-            if (kw.length > bestScore) {
-                bestScore = kw.length;
-                bestText = text;
-            }
-        });
-        if (bestText.length > 80) return bestText.substring(0, 77) + "...";
-        if (bestText.length > 0) return bestText;
-        return "Untitled Conversation";
-    }
-
-    function formatTimeRange(startMs, endMs) {
-        var s = new Date(startMs);
-        var e = new Date(endMs);
-        var date = s.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        var startTime = s.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-        var endTime = e.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-        if (startMs === endMs) return date + " " + startTime;
-        return date + " " + startTime + " — " + endTime;
-    }
-
-    function formatDuration(startMs, endMs) {
-        var diff = Math.max(0, endMs - startMs);
-        var secs = Math.floor(diff / 1000);
-        if (secs < 60) return secs + "s";
-        var mins = Math.floor(secs / 60);
-        secs = secs % 60;
-        if (mins < 60) return mins + "m " + secs + "s";
-        var hrs = Math.floor(mins / 60);
-        mins = mins % 60;
-        return hrs + "h " + mins + "m";
-    }
-
-    // --------------- Rendering ---------------
     function renderTranscripts(items) {
+        var list = document.getElementById("transcript-list");
+        if (!list) return;
         if (items.length === 0) {
-            transcriptList.innerHTML = `
-                <div class="empty-state">
-                    <i data-lucide="inbox"></i>
-                    <p>No transcripts found for this period.</p>
-                </div>
-            `;
-            lucide.createIcons();
+            list.innerHTML = '<div class="empty-state"><i data-lucide="message-square-dashed"></i><p>No transcripts found matching filters.</p></div>';
+            if (window.lucide) lucide.createIcons();
             return;
         }
 
-        var conversations = clusterIntoConversations(items);
+        var groups = {};
+        var order = [];
+        items.forEach(function (item) {
+            var sid = item.sessionId || "unknown";
+            if (!groups[sid]) {
+                groups[sid] = [];
+                order.push(sid);
+            }
+            groups[sid].push(item);
+        });
+
         var html = "";
+        order.forEach(function (sid) {
+            var sessionTranscripts = groups[sid];
+            var first = sessionTranscripts[0];
+            var time = first.timestamp ? formatTimestamp(first.timestamp) : "Unknown Date";
+            var officerName = memberCache.has(first.userId) ? memberCache.get(first.userId).displayName : "Unknown Officer";
 
-        conversations.forEach(function (convo, idx) {
-            var title = escapeHtml(generateConversationTitle(convo));
-            var timeRange = formatTimeRange(convo.start, convo.end);
-            var duration = formatDuration(convo.start, convo.end);
-            var count = convo.items.length;
-            var isOpen = idx < 3 ? "open" : "";
+            html += '<details class="conversation-group" open>';
+            html += '<summary class="conversation-header">' +
+                '<div class="conversation-title-row">' +
+                '<i data-lucide="message-square" class="convo-icon"></i>' +
+                '<span class="conversation-title">' + escapeHtml(officerName) + '</span>' +
+                '</div>' +
+                '<div class="conversation-meta">' +
+                '<span class="convo-time"><i data-lucide="clock"></i>' + time + '</span>' +
+                '<span class="convo-count"><i data-lucide="layers"></i>' + sessionTranscripts.length + ' segments</span>' +
+                '</div></summary>';
+            
+            sessionTranscripts.forEach(function (t) {
+                var displayText = t.correctedText || t.text || "(empty)";
+                var cardTime = t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : "";
+                var gps = "";
+                if (t.latitude != null && t.longitude != null) {
+                    var mapsUrl = "https://www.google.com/maps?q=" + t.latitude + "," + t.longitude;
+                    gps = '<a class="gps-link" href="' + mapsUrl + '" target="_blank" rel="noopener"><i data-lucide="map-pin"></i>' + Number(t.latitude).toFixed(4) + ", " + Number(t.longitude).toFixed(4) + "</a>";
+                }
 
-            // Check if any item has GPS
-            var hasGps = convo.items.some(function (t) { return t.latitude != null; });
-
-            html += '<details class="conversation-group" ' + isOpen + '>';
-            html += '<summary class="conversation-header">';
-            html += '  <div class="conversation-title-row">';
-            html += '    <i data-lucide="message-square-text" class="convo-icon"></i>';
-            html += '    <span class="conversation-title">' + title + '</span>';
-            html += '  </div>';
-            html += '  <div class="conversation-meta">';
-            html += '    <span class="convo-time"><i data-lucide="clock"></i> ' + escapeHtml(timeRange) + '</span>';
-            html += '    <span class="convo-duration">' + escapeHtml(duration) + '</span>';
-            html += '    <span class="convo-count">' + count + ' chunk' + (count !== 1 ? 's' : '') + '</span>';
-            if (hasGps) html += '    <span class="convo-gps-badge"><i data-lucide="map-pin"></i></span>';
-            html += '  </div>';
-            html += '</summary>';
-
-            // Render chunks chronologically within conversation
-            var chronoItems = convo.items.slice().sort(function (a, b) {
-                return (a.timestamp || 0) - (b.timestamp || 0);
+                html += '<div class="transcript-card">' +
+                    '<div class="transcript-meta">' +
+                    '<span class="time-stamp"><i data-lucide="clock"></i>' + cardTime + '</span>' +
+                    (gps ? gps : "") +
+                    '</div>' +
+                    '<div class="transcript-text">' + escapeHtml(displayText) + '</div>' +
+                    '</div>';
             });
-            chronoItems.forEach(function (t) {
-                html += renderCard(t);
-            });
-
             html += '</details>';
         });
 
-        transcriptList.innerHTML = html;
+        list.innerHTML = html;
         if (window.lucide) lucide.createIcons();
     }
 
-    function renderCard(t) {
-        var displayText = t.correctedText || t.text || "(empty)";
-        var time = t.timestamp ? formatTimestamp(t.timestamp) : "—";
-        var gps = "";
-        if (t.latitude != null && t.longitude != null) {
-            var lat = Number(t.latitude).toFixed(6);
-            var lng = Number(t.longitude).toFixed(6);
-            var mapsUrl = "https://www.google.com/maps?q=" + lat + "," + lng;
-            gps = '<a class="gps-link" href="' + mapsUrl + '" target="_blank" rel="noopener">'
-                + '<i data-lucide="map-pin"></i> ' + lat + ', ' + lng + '</a>';
-        }
-
-        var officerLabel = "";
-        if (currentUserLevel !== ACCESS_LEVELS.OFFICER && t.recordedBy) {
-            var member = memberCache.get(t.recordedBy);
-            var name = member ? member.displayName : t.recordedBy;
-            officerLabel = '<span class="officer-name">' + escapeHtml(name) + '</span>';
-        }
-
-        return '<div class="transcript-card">'
-            + '<div class="transcript-meta">'
-            + '<div class="time-stamp"><i data-lucide="clock"></i><span>' + escapeHtml(time) + '</span>' + officerLabel + '</div>'
-            + gps
-            + '</div>'
-            + '<div class="transcript-text">' + escapeHtml(displayText) + '</div>'
-            + '</div>';
+    // --------------- Members (Dashboard) ---------------
+    function loadMemberCache() {
+        if (!currentOrgId) return Promise.resolve();
+        return db.collection("orgs").doc(currentOrgId).collection("members").get()
+            .then(function (snapshot) {
+                memberCache.clear();
+                snapshot.forEach(function (doc) {
+                    memberCache.set(doc.id, doc.data());
+                });
+            });
     }
 
-    // --------------- Helpers ---------------
-    function formatTimestamp(ms) {
-        var d = new Date(ms);
-        return d.toLocaleDateString(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "numeric"
-        }) + " • " + d.toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit"
+    function renderMembersSidebar() {
+        var sidebarList = document.getElementById("sidebar-member-list");
+        if (!sidebarList) return;
+        
+        var fragment = document.createDocumentFragment();
+        memberCache.forEach(function (data, uid) {
+            var row = document.createElement("div");
+            row.className = "sidebar-member-row";
+            if (uid === selectedMemberId) row.classList.add("active");
+            row.onclick = function () { selectMember(uid); };
+
+            var initials = getInitials(data.displayName || data.email);
+            var level = data.accessLevel || 10;
+            var levelName = getLevelName(level);
+            var levelClass = levelName.toLowerCase();
+
+            row.innerHTML = '<div class="sidebar-avatar">' + escapeHtml(initials) + '</div>' +
+                '<div class="sidebar-member-info">' +
+                '<span class="sidebar-member-name">' + escapeHtml(data.displayName || data.email.split('@')[0]) + '</span>' +
+                '<span class="role-badge ' + levelClass + '">' + levelName + '</span>' +
+                '</div>';
+            fragment.appendChild(row);
+        });
+
+        sidebarList.innerHTML = "";
+        sidebarList.appendChild(fragment);
+
+        var allMembersBtn = document.getElementById("sidebar-all-members");
+        if (allMembersBtn) {
+            allMembersBtn.classList.toggle("active", !selectedMemberId);
+            allMembersBtn.onclick = function () { selectMember(null); };
+        }
+
+        var toggleBtn = document.getElementById("sidebar-toggle-btn");
+        if (toggleBtn) {
+            toggleBtn.onclick = function () {
+                var sidebar = document.getElementById("members-sidebar");
+                sidebar.classList.toggle("sidebar-collapsed");
+                var iconEl = toggleBtn.querySelector("i, svg");
+                if (sidebar.classList.contains("sidebar-collapsed")) {
+                    iconEl.setAttribute("data-lucide", "panel-left-open");
+                } else {
+                    iconEl.setAttribute("data-lucide", "panel-left-close");
+                }
+                if (window.lucide) lucide.createIcons();
+            };
+        }
+    }
+
+    function selectMember(uid) {
+        selectedMemberId = uid;
+        renderMembersSidebar();
+        loadTranscripts();
+    }
+
+    function toggleSettingsModal(open) {
+        var modal = document.getElementById("settings-overlay");
+        if (modal) modal.hidden = !open;
+        if (open) renderMemberList();
+    }
+
+    function renderMemberList() {
+        var list = document.getElementById("member-list");
+        if (!list) return;
+        var fragment = document.createDocumentFragment();
+        memberCache.forEach(function (data, uid) {
+            var row = document.createElement("div");
+            row.className = "member-row";
+            var level = data.accessLevel || 10;
+            var levelName = getLevelName(level);
+            
+            var html = '<div class="member-info">' +
+                '<div class="member-name">' + escapeHtml(data.displayName || data.email) + '</div>' +
+                '<div class="member-email">' + escapeHtml(data.email) + '</div>' +
+                '</div>' +
+                '<span class="role-badge ' + levelName.toLowerCase() + '">' + levelName + '</span>';
+            
+            if (hasPermission(ACCESS_LEVELS.ADMIN) && uid !== auth.currentUser.uid) {
+                html += '<button class="member-remove-btn" onclick="removeMember(\'' + uid + '\')"><i data-lucide="trash-2"></i></button>';
+            }
+            row.innerHTML = html;
+            fragment.appendChild(row);
+        });
+        list.innerHTML = "";
+        list.appendChild(fragment);
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function generateInvite(accessLevel) {
+        var code = "INV-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+        db.collection("orgs").doc(currentOrgId).collection("invites").add({
+            code: code,
+            accessLevel: accessLevel,
+            roleName: getLevelName(accessLevel).toLowerCase(),
+            used: false,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).then(function () {
+            var display = document.getElementById("invite-code-display");
+            display.innerHTML = '<div class="invite-code-display">' +
+                '<span class="invite-code-text">' + code + '</span>' +
+                '<button class="copy-btn" onclick="navigator.clipboard.writeText(\'' + code + '\')">Copy</button>' +
+                '</div>';
         });
     }
 
-    function escapeHtml(str) {
-        var div = document.createElement("div");
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
-    }
-
-    // --------------- Test Panel ---------------
-    var testPanel = document.getElementById("test-panel");
-    var testSessionCounter = 0;
-    var activeTestSession = null;
-
-    var SAMPLE_TRANSCRIPTS = [
-        "Officer approached the vehicle and made contact with the driver. License and registration were requested.",
-        "Suspect was observed exiting the building at approximately fourteen thirty hours carrying a dark backpack.",
-        "Dispatch confirmed a ten-fifty-one at the intersection of Main and Broadway. Units responding code three.",
-        "Witness stated they heard two loud noises coming from the alley behind the convenience store at around nine PM.",
-        "Traffic stop conducted on a silver sedan traveling eastbound. Driver was cooperative and no violations found.",
-        "Perimeter established around the two hundred block. K-nine unit requested for a building search.",
-        "Individual identified via state ID. No outstanding warrants. Released with a verbal warning.",
-        "Responding to a noise complaint at the apartment complex on Elm Street. Resident agreed to lower the volume.",
-        "Footage reviewed from the body camera shows the interaction lasted approximately four minutes.",
-        "Backup unit arrived on scene. Situation de-escalated without incident. Report filed under case number seven-four-two."
-    ];
-
-    var SAMPLE_LOCATIONS = [
-        { lat: 37.7749, lng: -122.4194 },  // San Francisco
-        { lat: 34.0522, lng: -118.2437 },  // Los Angeles
-        { lat: 40.7128, lng: -74.0060 },   // New York
-        { lat: 41.8781, lng: -87.6298 },   // Chicago
-        { lat: 29.7604, lng: -95.3698 },   // Houston
-        { lat: 33.4484, lng: -112.0740 },  // Phoenix
-    ];
-
-    function generateSessionId() {
-        if (!activeTestSession || testSessionCounter % 5 === 0) {
-            activeTestSession = "test-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-        }
-        testSessionCounter++;
-        return activeTestSession;
-    }
-
-    function pushTranscript(data) {
-        if (!db) return Promise.reject("Firestore not initialized");
-        if (currentOrgId) {
-            data.orgId = currentOrgId;
-        }
-        if (auth.currentUser) {
-            data.recordedBy = auth.currentUser.uid;
-        }
-        return db.collection(transcriptsPath()).add(data);
-    }
+    // --------------- Record Panel (Always-On) ---------------
+    var isLive = false;
+    var micStream = null;
+    var audioContext = null;
+    var micSource = null;
+    var analyserNode = null;
+    var scriptNode = null;
+    var vadInterval = null;
+    var speechActive = false;
+    var chunkSamples = [];
+    var chunkStartedAt = 0;
+    var totalChunks = 0, transcribedChunks = 0, pendingChunks = 0;
+    var currentGps = null;
+    var recordSessionId = null;
+    var MIN_CHUNK_S = 1.0, MAX_CHUNK_S = 15.0;
 
     function initTestPanel() {
-        document.getElementById("toggle-test-btn").addEventListener("click", function () {
-            testPanel.hidden = !testPanel.hidden;
-            if (!testPanel.hidden && window.lucide) lucide.createIcons();
-        });
-
-        document.getElementById("close-test-panel").addEventListener("click", function () {
-            testPanel.hidden = true;
-        });
-
-        document.getElementById("test-push-btn").addEventListener("click", function () {
-        var text = document.getElementById("test-text").value.trim();
-        if (!text) { text = SAMPLE_TRANSCRIPTS[Math.floor(Math.random() * SAMPLE_TRANSCRIPTS.length)]; }
-        var lat = parseFloat(document.getElementById("test-lat").value) || 37.7749;
-        var lng = parseFloat(document.getElementById("test-lng").value) || -122.4194;
-        var session = document.getElementById("test-session").value.trim() || generateSessionId();
-        var corrected = document.getElementById("test-corrected").value.trim() || null;
-
-        var doc = {
-            text: text,
-            correctedText: corrected,
-            latitude: lat,
-            longitude: lng,
-            accuracy: Math.floor(Math.random() * 15) + 3,
-            timestamp: Date.now(),
-            sessionId: session,
-            userId: auth.currentUser ? auth.currentUser.uid : "test-user"
-        };
-
+        var testPanel = document.getElementById("test-panel");
+        var toggleBtn = document.getElementById("toggle-test-btn");
+        var closeBtn = document.getElementById("close-test-panel");
+        var pushBtn = document.getElementById("test-push-btn");
+        var batchBtn = document.getElementById("test-batch-btn");
+        var clearBtn = document.getElementById("test-clear-btn");
         var statusEl = document.getElementById("test-status");
-        statusEl.textContent = "Pushing...";
-        pushTranscript(doc).then(function () {
-            statusEl.textContent = "Pushed! Refreshing...";
-            loadTranscripts();
-            setTimeout(function () { statusEl.textContent = ""; }, 2000);
-        }).catch(function (err) {
-            statusEl.textContent = "Error: " + err.message;
-        });
-    });
 
-    document.getElementById("test-batch-btn").addEventListener("click", function () {
-        var statusEl = document.getElementById("test-status");
-        statusEl.textContent = "Pushing 5 transcripts...";
-        var promises = [];
-        var session = generateSessionId();
+        function setStatus(msg) {
+            if (statusEl) statusEl.textContent = msg;
+        }
 
-        for (var i = 0; i < 5; i++) {
-            var loc = SAMPLE_LOCATIONS[Math.floor(Math.random() * SAMPLE_LOCATIONS.length)];
-            var text = SAMPLE_TRANSCRIPTS[Math.floor(Math.random() * SAMPLE_TRANSCRIPTS.length)];
-            // Stagger timestamps so they sort properly
-            var doc = {
-                text: text,
-                correctedText: Math.random() > 0.5 ? text.replace(/approximately/g, "approx.") : null,
-                latitude: loc.lat + (Math.random() - 0.5) * 0.01,
-                longitude: loc.lng + (Math.random() - 0.5) * 0.01,
-                accuracy: Math.floor(Math.random() * 20) + 3,
-                timestamp: Date.now() - (i * 30000),
-                sessionId: session,
-                userId: auth.currentUser ? auth.currentUser.uid : "test-user"
+        if (toggleBtn) {
+            toggleBtn.onclick = function () {
+                if (!testPanel) return;
+                testPanel.hidden = !testPanel.hidden;
             };
-            promises.push(pushTranscript(doc));
         }
 
-        Promise.all(promises).then(function () {
-            statusEl.textContent = "5 transcripts pushed! Refreshing...";
-            loadTranscripts();
-            setTimeout(function () { statusEl.textContent = ""; }, 2000);
-        }).catch(function (err) {
-            statusEl.textContent = "Error: " + err.message;
-        });
-    });
+        if (closeBtn) {
+            closeBtn.onclick = function () {
+                if (testPanel) testPanel.hidden = true;
+            };
+        }
 
-    document.getElementById("test-clear-btn").addEventListener("click", function () {
-        var statusEl = document.getElementById("test-status");
-        if (!confirm("Delete ALL transcripts from Firestore? This cannot be undone.")) return;
-        statusEl.textContent = "Deleting all transcripts...";
-        db.collection(transcriptsPath()).get().then(function (snapshot) {
-            var batch = db.batch();
-            snapshot.docs.forEach(function (doc) { batch.delete(doc.ref); });
-            return batch.commit();
-        }).then(function () {
-            statusEl.textContent = "All transcripts deleted.";
-            loadTranscripts();
-            setTimeout(function () { statusEl.textContent = ""; }, 2000);
-        }).catch(function (err) {
-            statusEl.textContent = "Error: " + err.message;
-        });
-    });
+        if (pushBtn) {
+            pushBtn.onclick = function () {
+                var text = (document.getElementById("test-text").value || "").trim();
+                var lat = parseFloat(document.getElementById("test-lat").value) || 0;
+                var lng = parseFloat(document.getElementById("test-lng").value) || 0;
+                if (!text) { setStatus("Enter some text first."); return; }
+                var user = auth.currentUser;
+                if (!user) { setStatus("Not logged in."); return; }
+                setStatus("Pushing...");
+                db.collection(transcriptsPath()).add({
+                    text: text,
+                    timestamp: Date.now(),
+                    sessionId: "test-" + Date.now(),
+                    userId: user.uid,
+                    recordedBy: user.uid,
+                    orgId: currentOrgId || null,
+                    location: { lat: lat, lng: lng }
+                }).then(function () {
+                    setStatus("Pushed 1 transcript.");
+                    loadTranscripts();
+                }).catch(function (err) {
+                    setStatus("Error: " + err.message);
+                });
+            };
+        }
 
-    } // end initTestPanel
+        if (batchBtn) {
+            batchBtn.onclick = function () {
+                var user = auth.currentUser;
+                if (!user) { setStatus("Not logged in."); return; }
+                setStatus("Pushing 5 random transcripts...");
+                var batch = db.batch();
+                for (var i = 1; i <= 5; i++) {
+                    var ref = db.collection(transcriptsPath()).doc();
+                    batch.set(ref, {
+                        text: "Test transcript #" + i + " — " + new Date().toLocaleTimeString(),
+                        timestamp: Date.now() - (i * 1000),
+                        sessionId: "test-batch-" + Date.now(),
+                        userId: user.uid,
+                        recordedBy: user.uid,
+                        orgId: currentOrgId || null,
+                        location: { lat: 37.7749 + (Math.random() - 0.5) * 0.01, lng: -122.4194 + (Math.random() - 0.5) * 0.01 }
+                    });
+                }
+                batch.commit().then(function () {
+                    setStatus("Pushed 5 random transcripts.");
+                    loadTranscripts();
+                }).catch(function (err) {
+                    setStatus("Error: " + err.message);
+                });
+            };
+        }
 
-    // --------------- Record Panel (Always-On Chunked Pipeline) ---------------
+        if (clearBtn) {
+            clearBtn.onclick = function () {
+                if (!confirm("Delete ALL transcripts in this collection? This cannot be undone.")) return;
+                setStatus("Clearing...");
+                db.collection(transcriptsPath()).get().then(function (snapshot) {
+                    if (snapshot.empty) { setStatus("Nothing to clear."); return; }
+                    var batch = db.batch();
+                    snapshot.docs.forEach(function (doc) { batch.delete(doc.ref); });
+                    return batch.commit();
+                }).then(function () {
+                    setStatus("All transcripts cleared.");
+                    loadTranscripts();
+                }).catch(function (err) {
+                    setStatus("Error: " + err.message);
+                });
+            };
+        }
+    }
+
     function initRecordPanel() {
-        if (currentUserLevel && currentUserLevel !== ACCESS_LEVELS.OFFICER) {
-            document.getElementById("toggle-record-btn").hidden = true;
-            return;
-        }
-        var recordPanel = document.getElementById("record-panel");
         var goLiveBtn = document.getElementById("go-live-btn");
         var goStopBtn = document.getElementById("go-stop-btn");
+        var recordPanel = document.getElementById("record-panel");
         var vadStatusEl = document.getElementById("vad-status");
-        var gpsDisplay = document.getElementById("record-gps-display");
-        var chunkStatsEl = document.getElementById("chunk-stats");
         var eventLogEl = document.getElementById("event-log");
-        var sensitivitySlider = document.getElementById("sensitivity-slider");
-        var sensitivityValue = document.getElementById("sensitivity-value");
-        var meterFill = document.querySelector("#audio-level-meter .audio-level-fill");
 
-        var ASSEMBLYAI_KEY = "75b10e24655f44b5bba36598b4351c23";
-
-        var audioContext = null;
-        var analyserNode = null;
-        var micStream = null;
-        var scriptNode = null;
-        var micSource = null;
-        var meterRaf = null;
-        var vadInterval = null;
-        var isLive = false;
-
-        // VAD state
-        var vadThreshold = 0.015;
-        var speechActive = false;
-        var speechStartTime = 0;
-        var silenceStartTime = 0;
-        var SPEECH_ONSET_MS = 300;
-        var SPEECH_OFFSET_MS = 800;
-        var MAX_CHUNK_S = 30;
-        var MIN_CHUNK_S = 1;
-        var energyAboveThreshold = false;
-        var energyAboveStartTime = 0;
-
-        // Chunk recording state
-        var chunkSamples = [];
-        var chunkStartedAt = 0;
-
-        // Stats
-        var totalChunks = 0;
-        var transcribedChunks = 0;
-        var pendingChunks = 0;
-
-        var currentGps = null;
-        var recordSessionId = null;
-
-        // Toggle panel
-        document.getElementById("toggle-record-btn").addEventListener("click", function () {
-            recordPanel.hidden = !recordPanel.hidden;
-            if (!recordPanel.hidden && window.lucide) lucide.createIcons();
-        });
-        document.getElementById("close-record-panel").addEventListener("click", function () {
-            recordPanel.hidden = true;
-        });
-
-        // Sensitivity slider
-        sensitivitySlider.addEventListener("input", function () {
-            vadThreshold = parseFloat(sensitivitySlider.value);
-            sensitivityValue.textContent = vadThreshold.toFixed(3);
-        });
-
-        // ----------- Event Log -----------
         function logEvent(msg) {
+            if (!eventLogEl) return;
             var line = document.createElement("div");
             line.className = "event-log-line";
-            var now = new Date();
-            var ts = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-            line.textContent = "[" + ts + "] " + msg;
-            eventLogEl.appendChild(line);
-            eventLogEl.scrollTop = eventLogEl.scrollHeight;
-            // Keep max 50 entries
-            while (eventLogEl.children.length > 50) {
-                eventLogEl.removeChild(eventLogEl.firstChild);
-            }
+            line.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+            eventLogEl.prepend(line);
         }
 
-        // ----------- Stats -----------
         function updateStats() {
-            chunkStatsEl.textContent = "Chunks: " + totalChunks + " | Transcribed: " + transcribedChunks + " | Pending: " + pendingChunks;
+            var stats = document.getElementById("chunk-stats");
+            if (stats) stats.textContent = "Chunks: " + totalChunks + " | Transcribed: " + transcribedChunks + " | Pending: " + pendingChunks;
         }
 
-        // ----------- Audio Level Meter -----------
         function startMeter() {
-            var dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-            function tick() {
-                analyserNode.getByteFrequencyData(dataArray);
-                var sum = 0;
-                for (var i = 0; i < dataArray.length; i++) sum += dataArray[i];
-                var avg = sum / dataArray.length;
-                var pct = Math.min(100, (avg / 128) * 100);
-                meterFill.style.width = pct + "%";
-                meterRaf = requestAnimationFrame(tick);
+            var fill = document.querySelector(".audio-level-fill");
+            function frame() {
+                if (!isLive || !analyserNode) return;
+                var data = new Uint8Array(analyserNode.frequencyBinCount);
+                analyserNode.getByteFrequencyData(data);
+                var sum = 0; for (var i = 0; i < data.length; i++) sum += data[i];
+                var avg = sum / data.length;
+                if (fill) fill.style.width = Math.min(100, avg * 2) + "%";
+                requestAnimationFrame(frame);
             }
-            tick();
+            requestAnimationFrame(frame);
         }
 
         function stopMeter() {
-            if (meterRaf) { cancelAnimationFrame(meterRaf); meterRaf = null; }
-            meterFill.style.width = "0%";
+            var fill = document.querySelector(".audio-level-fill");
+            if (fill) fill.style.width = "0%";
         }
 
-        // ----------- GPS -----------
         function fetchGps() {
-            gpsDisplay.textContent = "Fetching GPS...";
-            if (!navigator.geolocation) {
-                gpsDisplay.textContent = "Geolocation not available";
-                return;
-            }
-            navigator.geolocation.getCurrentPosition(
-                function (pos) {
-                    currentGps = {
-                        latitude: pos.coords.latitude,
-                        longitude: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy
-                    };
-                    gpsDisplay.textContent = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6) + " (\u00b1" + Math.round(pos.coords.accuracy) + "m)";
-                    logEvent("GPS acquired: " + pos.coords.latitude.toFixed(4) + ", " + pos.coords.longitude.toFixed(4));
-                },
-                function (err) {
-                    gpsDisplay.textContent = "GPS error: " + err.message;
-                    currentGps = null;
-                }
-            );
-        }
-
-        // ----------- WAV Encoding -----------
-        function encodeWAV(samples, sampleRate) {
-            var numChannels = 1;
-            var bytesPerSample = 2;
-            var blockAlign = numChannels * bytesPerSample;
-            var byteRate = sampleRate * blockAlign;
-            var dataLength = samples.length * bytesPerSample;
-            var buffer = new ArrayBuffer(44 + dataLength);
-            var view = new DataView(buffer);
-
-            function writeString(offset, str) {
-                for (var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-            }
-
-            writeString(0, "RIFF");
-            view.setUint32(4, 36 + dataLength, true);
-            writeString(8, "WAVE");
-            writeString(12, "fmt ");
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, numChannels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bytesPerSample * 8, true);
-            writeString(36, "data");
-            view.setUint32(40, dataLength, true);
-
-            var off = 44;
-            for (var i = 0; i < samples.length; i++) {
-                var s = Math.max(-1, Math.min(1, samples[i]));
-                view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-                off += 2;
-            }
-
-            return new Blob([view], { type: "audio/wav" });
-        }
-
-        // ----------- AssemblyAI -----------
-        function uploadToAssemblyAI(wavBlob) {
-            return fetch("https://api.assemblyai.com/v2/upload", {
-                method: "POST",
-                headers: {
-                    "Authorization": ASSEMBLYAI_KEY,
-                    "Content-Type": "application/octet-stream"
-                },
-                body: wavBlob
-            })
-            .then(function (resp) {
-                if (!resp.ok) throw new Error("Upload failed: " + resp.status);
-                return resp.json();
-            })
-            .then(function (data) {
-                return fetch("https://api.assemblyai.com/v2/transcript", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": ASSEMBLYAI_KEY,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ audio_url: data.upload_url, speech_models: ["universal-3-pro"] })
-                });
-            })
-            .then(function (resp) {
-                if (!resp.ok) throw new Error("Transcript request failed: " + resp.status);
-                return resp.json();
-            })
-            .then(function (data) {
-                return pollTranscript(data.id);
+            if (!navigator.geolocation) return;
+            navigator.geolocation.watchPosition(function (pos) {
+                currentGps = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+                var gpsEl = document.getElementById("record-gps-display");
+                if (gpsEl) gpsEl.textContent = "GPS: " + currentGps.latitude.toFixed(5) + ", " + currentGps.longitude.toFixed(5);
             });
         }
 
-        function pollTranscript(transcriptId) {
-            return new Promise(function (resolve, reject) {
-                function check() {
-                    fetch("https://api.assemblyai.com/v2/transcript/" + transcriptId, {
-                        headers: { "Authorization": ASSEMBLYAI_KEY }
-                    })
-                    .then(function (resp) { return resp.json(); })
-                    .then(function (data) {
-                        if (data.status === "completed") {
-                            resolve(data);
-                        } else if (data.status === "error") {
-                            reject(new Error("Transcription error: " + (data.error || "unknown")));
-                        } else {
-                            setTimeout(check, 3000);
-                        }
-                    })
-                    .catch(reject);
-                }
-                check();
-            });
-        }
-
-        // ----------- Session Management -----------
         function getRecordSessionId() {
-            if (!recordSessionId) {
-                recordSessionId = "rec-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-            }
+            if (!recordSessionId) recordSessionId = "sess_" + Date.now();
             return recordSessionId;
         }
 
-        // ----------- VAD (Energy-based) -----------
-        function computeRMS() {
-            var dataArray = new Float32Array(analyserNode.fftSize);
-            analyserNode.getFloatTimeDomainData(dataArray);
-            var sum = 0;
-            for (var i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i] * dataArray[i];
+        function vadTick() {
+            if (!analyserNode) return;
+            var data = new Float32Array(analyserNode.fftSize);
+            analyserNode.getFloatTimeDomainData(data);
+            var sum = 0; for (var i = 0; i < data.length; i++) sum += data[i] * data[i];
+            var rms = Math.sqrt(sum / data.length);
+            var sensitivity = parseFloat(document.getElementById("sensitivity-slider").value);
+            
+            if (rms > sensitivity) {
+                if (!speechActive) {
+                    speechActive = true; chunkStartedAt = Date.now();
+                    if (vadStatusEl) { vadStatusEl.textContent = "SPEAKING"; vadStatusEl.classList.add("vad-speech"); }
+                }
+            } else if (speechActive && (Date.now() - chunkStartedAt) > 1500) {
+                finalizeChunk("silence");
             }
-            return Math.sqrt(sum / dataArray.length);
+            if (speechActive && (Date.now() - chunkStartedAt) > (MAX_CHUNK_S * 1000)) {
+                finalizeChunk("limit");
+            }
         }
 
-        function vadTick() {
-            if (!isLive || !analyserNode) return;
-
-            var rms = computeRMS();
-            var now = Date.now();
-
-            if (rms >= vadThreshold) {
-                if (!energyAboveThreshold) {
-                    energyAboveThreshold = true;
-                    energyAboveStartTime = now;
-                }
-                silenceStartTime = 0;
-
-                // Speech onset: energy above threshold for SPEECH_ONSET_MS
-                if (!speechActive && (now - energyAboveStartTime >= SPEECH_ONSET_MS)) {
-                    speechActive = true;
-                    chunkStartedAt = now;
-                    chunkSamples = [];
-                    vadStatusEl.textContent = "Speech detected...";
-                    vadStatusEl.classList.add("vad-speech");
-                    logEvent("Speech detected");
-                }
-            } else {
-                energyAboveThreshold = false;
-                energyAboveStartTime = 0;
-
-                if (speechActive) {
-                    if (!silenceStartTime) {
-                        silenceStartTime = now;
+        function uploadToAssemblyAI(blob) {
+            return fetch("https://api.assemblyai.com/v2/upload", {
+                method: "POST", headers: { "Authorization": "b3e9447e1458498f804f323e2cc1834e" }, body: blob
+            }).then(function (r) { return r.json(); }).then(function (upload) {
+                return fetch("https://api.assemblyai.com/v2/transcript", {
+                    method: "POST", headers: { "Authorization": "b3e9447e1458498f804f323e2cc1834e", "Content-Type": "application/json" },
+                    body: JSON.stringify({ audio_url: upload.upload_url })
+                }).then(function (r) { return r.json(); });
+            }).then(function (transcript) {
+                return new Promise(function (res, rej) {
+                    function poll() {
+                        fetch("https://api.assemblyai.com/v2/transcript/" + transcript.id, {
+                            headers: { "Authorization": "b3e9447e1458498f804f323e2cc1834e" }
+                        }).then(function (r) { return r.json(); }).then(function (t) {
+                            if (t.status === "completed") res(t);
+                            else if (t.status === "error") rej(new Error(t.error));
+                            else setTimeout(poll, 1000);
+                        });
                     }
-                    // Speech offset: energy below threshold for SPEECH_OFFSET_MS
-                    if (now - silenceStartTime >= SPEECH_OFFSET_MS) {
-                        finalizeChunk("silence");
-                    }
-                }
-            }
+                    poll();
+                });
+            });
+        }
 
-            // Force-split at MAX_CHUNK_S
-            if (speechActive && (now - chunkStartedAt >= MAX_CHUNK_S * 1000)) {
-                finalizeChunk("max-duration");
+        function encodeWAV(samples, sampleRate) {
+            var buffer = new ArrayBuffer(44 + samples.length * 2);
+            var view = new DataView(buffer);
+            function writeString(s, o) { for (var i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); }
+            writeString("RIFF", 0); view.setUint32(4, 32 + samples.length * 2, true); writeString("WAVE", 8);
+            writeString("fmt ", 12); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+            writeString("data", 36); view.setUint32(40, samples.length * 2, true);
+            var index = 44; for (var i = 0; i < samples.length; i++) {
+                var s = Math.max(-1, Math.min(1, samples[i]));
+                view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true); index += 2;
             }
+            return new Blob([view], { type: "audio/wav" });
         }
 
         function finalizeChunk(reason) {
             speechActive = false;
-            silenceStartTime = 0;
-            energyAboveThreshold = false;
-            energyAboveStartTime = 0;
-            vadStatusEl.textContent = "Processing chunk...";
-            vadStatusEl.classList.remove("vad-speech");
-
+            if (vadStatusEl) vadStatusEl.classList.remove("vad-speech");
             var duration = (Date.now() - chunkStartedAt) / 1000;
             var samples = flattenSamples(chunkSamples);
             chunkSamples = [];
-
             if (duration < MIN_CHUNK_S || samples.length === 0) {
-                vadStatusEl.textContent = "Listening...";
-                logEvent("Chunk discarded (too short: " + duration.toFixed(1) + "s)");
+                if (vadStatusEl) vadStatusEl.textContent = "Listening...";
+                logEvent("Chunk discarded (too short)");
                 return;
             }
-
-            totalChunks++;
-            pendingChunks++;
-            updateStats();
-            logEvent("Chunk #" + totalChunks + " (" + duration.toFixed(1) + "s, " + reason + ")");
-
+            totalChunks++; pendingChunks++; updateStats();
+            logEvent("Uploading chunk #" + totalChunks + " (" + duration.toFixed(1) + "s, " + reason + ")");
             var sampleRate = audioContext ? audioContext.sampleRate : 16000;
             var wavBlob = encodeWAV(samples, sampleRate);
             var chunkNum = totalChunks;
-
-            logEvent("Uploading chunk #" + chunkNum + "...");
-
-            uploadToAssemblyAI(wavBlob)
-                .then(function (result) {
-                    var text = result.text || "";
-                    pendingChunks--;
-                    transcribedChunks++;
-                    updateStats();
-
-                    if (!text.trim()) {
-                        logEvent("Chunk #" + chunkNum + ": (no speech)");
-                        return;
-                    }
-
-                    var preview = text.length > 50 ? text.substring(0, 50) + "..." : text;
-                    logEvent("Transcript #" + chunkNum + ": " + preview);
-
-                    // Write to Firestore
-                    var doc = {
-                        text: text.trim(),
-                        timestamp: Date.now(),
-                        sessionId: getRecordSessionId(),
-                        userId: auth.currentUser ? auth.currentUser.uid : "web-recorder"
-                    };
-                    if (currentOrgId) doc.orgId = currentOrgId;
-                    if (auth.currentUser) doc.recordedBy = auth.currentUser.uid;
-                    if (result.words) doc.words = result.words;
-                    if (currentGps) {
-                        doc.latitude = currentGps.latitude;
-                        doc.longitude = currentGps.longitude;
-                        doc.accuracy = currentGps.accuracy;
-                    }
-                    db.collection(transcriptsPath()).add(doc).then(function () {
-                        logEvent("Saved chunk #" + chunkNum + " to Firestore");
-                        loadTranscripts();
-                    }).catch(function (err) {
-                        logEvent("Firestore error: " + err.message);
-                    });
-                })
-                .catch(function (err) {
-                    pendingChunks--;
-                    updateStats();
-                    logEvent("Error chunk #" + chunkNum + ": " + err.message);
-                });
-
-            // Resume listening immediately
-            if (isLive) {
-                vadStatusEl.textContent = "Listening...";
-            }
+            uploadToAssemblyAI(wavBlob).then(function (result) {
+                var text = result.text || "";
+                pendingChunks--; transcribedChunks++; updateStats();
+                if (!text.trim()) { logEvent("Chunk #" + chunkNum + ": (no speech)"); return; }
+                logEvent("Transcript #" + chunkNum + ": " + (text.length > 50 ? text.substring(0, 50) + "..." : text));
+                var doc = { text: text.trim(), timestamp: Date.now(), sessionId: getRecordSessionId(), userId: auth.currentUser.uid };
+                if (currentOrgId) doc.orgId = currentOrgId;
+                if (auth.currentUser) doc.recordedBy = auth.currentUser.uid;
+                db.collection(transcriptsPath()).add(doc).then(function () { logEvent("Saved chunk #" + chunkNum); loadTranscripts(); });
+            }).catch(function (err) { pendingChunks--; updateStats(); logEvent("Error #" + chunkNum + ": " + err.message); });
+            if (isLive && vadStatusEl) vadStatusEl.textContent = "Listening...";
         }
 
         function flattenSamples(buffers) {
@@ -1562,31 +1037,21 @@
             for (var i = 0; i < buffers.length; i++) totalLength += buffers[i].length;
             var merged = new Float32Array(totalLength);
             var offset = 0;
-            for (var i = 0; i < buffers.length; i++) {
-                merged.set(buffers[i], offset);
-                offset += buffers[i].length;
-            }
+            for (var i = 0; i < buffers.length; i++) { merged.set(buffers[i], offset); offset += buffers[i].length; }
             return merged;
         }
 
-        // ----------- Audio Capture (ScriptProcessor for raw PCM) -----------
         function startAudioCapture(stream) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             micSource = audioContext.createMediaStreamSource(stream);
-
             analyserNode = audioContext.createAnalyser();
             analyserNode.fftSize = 2048;
             micSource.connect(analyserNode);
-
             scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
             micSource.connect(scriptNode);
             scriptNode.connect(audioContext.destination);
-
             scriptNode.onaudioprocess = function (e) {
-                if (speechActive) {
-                    var channelData = e.inputBuffer.getChannelData(0);
-                    chunkSamples.push(new Float32Array(channelData));
-                }
+                if (speechActive) { var channelData = e.inputBuffer.getChannelData(0); chunkSamples.push(new Float32Array(channelData)); }
             };
         }
 
@@ -1597,65 +1062,48 @@
             analyserNode = null;
         }
 
-        // ----------- Go Live / Stop -----------
-        goLiveBtn.addEventListener("click", function () {
-            vadStatusEl.textContent = "Requesting microphone...";
-            recordSessionId = null;
-            totalChunks = 0;
-            transcribedChunks = 0;
-            pendingChunks = 0;
-            updateStats();
-            eventLogEl.innerHTML = "";
-
-            var constraints = { audio: { channelCount: 1, sampleRate: { ideal: 16000 } } };
-
-            navigator.mediaDevices.getUserMedia(constraints)
-                .then(function (stream) {
-                    micStream = stream;
-                    isLive = true;
-                    startAudioCapture(stream);
-                    startMeter();
-                    fetchGps();
-
-                    // Start VAD polling every 50ms
+        if (goLiveBtn) {
+            goLiveBtn.addEventListener("click", function () {
+                if (vadStatusEl) vadStatusEl.textContent = "Requesting microphone...";
+                recordSessionId = null; totalChunks = 0; transcribedChunks = 0; pendingChunks = 0; updateStats();
+                if (eventLogEl) eventLogEl.innerHTML = "";
+                var constraints = { audio: { channelCount: 1, sampleRate: { ideal: 16000 } } };
+                navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+                    micStream = stream; isLive = true; startAudioCapture(stream); startMeter(); fetchGps();
                     vadInterval = setInterval(vadTick, 50);
-
-                    vadStatusEl.textContent = "Listening...";
-                    goLiveBtn.hidden = true;
-                    goStopBtn.hidden = false;
-                    recordPanel.classList.add("is-recording");
+                    if (vadStatusEl) vadStatusEl.textContent = "Listening...";
+                    if (goLiveBtn) goLiveBtn.hidden = true; if (goStopBtn) goStopBtn.hidden = false;
+                    if (recordPanel) recordPanel.classList.add("is-recording");
                     logEvent("Live capture started");
-                })
-                .catch(function (err) {
-                    vadStatusEl.textContent = "Microphone error: " + err.message;
-                });
-        });
+                }).catch(function (err) { if (vadStatusEl) vadStatusEl.textContent = "Microphone error: " + err.message; });
+            });
+        }
 
-        goStopBtn.addEventListener("click", function () {
-            isLive = false;
+        if (goStopBtn) {
+            goStopBtn.addEventListener("click", function () {
+                isLive = false;
+                if (speechActive) finalizeChunk("stopped");
+                if (vadInterval) { clearInterval(vadInterval); vadInterval = null; }
+                stopMeter(); stopAudioCapture();
+                if (micStream) { micStream.getTracks().forEach(function (t) { t.stop(); }); micStream = null; }
+                if (goStopBtn) goStopBtn.hidden = true; if (goLiveBtn) goLiveBtn.hidden = false;
+                if (recordPanel) recordPanel.classList.remove("is-recording");
+                if (vadStatusEl) vadStatusEl.textContent = "Idle";
+                logEvent("Live capture stopped");
+            });
+        }
+    }
 
-            // If speech was active, finalize the current chunk
-            if (speechActive) {
-                finalizeChunk("stopped");
-            }
+    function formatTimestamp(ms) {
+        var d = new Date(ms);
+        return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) + " " + d.toLocaleTimeString();
+    }
 
-            if (vadInterval) { clearInterval(vadInterval); vadInterval = null; }
-            stopMeter();
-            stopAudioCapture();
-
-            if (micStream) {
-                micStream.getTracks().forEach(function (t) { t.stop(); });
-                micStream = null;
-            }
-
-            goStopBtn.hidden = true;
-            goLiveBtn.hidden = false;
-            recordPanel.classList.remove("is-recording");
-            vadStatusEl.textContent = "Idle";
-            vadStatusEl.classList.remove("vad-speech");
-            logEvent("Live capture stopped");
-        });
-
-    } // end initRecordPanel
+    // Call boot once DOM is ready if scripts are already here
+    if (document.readyState === "complete" || document.readyState === "interactive") {
+        boot();
+    } else {
+        window.addEventListener("DOMContentLoaded", boot);
+    }
 
 })();
