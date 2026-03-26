@@ -42,6 +42,11 @@ service cloud.firestore {
       }
     }
 
+    // --- CollectionGroup: members (for login resolution + org listing) ---
+    match /{path=**}/members/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+    }
+
     // --- Users (org membership tracking) ---
     match /users/{uid} {
       allow read, write: if isAuthenticated() && request.auth.uid == uid;
