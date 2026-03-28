@@ -75,6 +75,7 @@ onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
+firebase-functions = { group = "com.google.firebase", name = "firebase-functions-ktx" }
 
 # AndroidX Core
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
