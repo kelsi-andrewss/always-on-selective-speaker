@@ -1,98 +1,141 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { defineSecret } = require("firebase-functions/params");
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
 
-const assemblyAiKey = defineSecret("ASSEMBLYAI_KEY");
+admin.initializeApp();
+
+const db = admin.firestore();
+const storage = admin.storage();
 
 const POLL_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 3_000;
 
-exports.transcribe = onCall(
-  {
-    secrets: [assemblyAiKey],
+exports.transcribeOnUpload = functions
+  .runWith({
+    secrets: ["ASSEMBLYAI_KEY"],
     timeoutSeconds: 300,
-    memory: "512MiB",
-  },
-  async (request) => {
-    if (!request.auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Caller must be authenticated."
-      );
+    memory: "512MB",
+  })
+  .storage.object()
+  .onFinalize(async (object) => {
+    const filePath = object.name;
+    if (!filePath || !filePath.startsWith("audio-chunks/")) {
+      console.log(`Ignoring non-audio file: ${filePath}`);
+      return null;
     }
 
-    const { audioData } = request.data;
-    if (!audioData || typeof audioData !== "string") {
-      throw new HttpsError(
-        "invalid-argument",
-        "audioData must be a base64-encoded string."
-      );
+    // Path: audio-chunks/{userId}/{chunkId}.wav
+    const parts = filePath.split("/");
+    if (parts.length !== 3) {
+      console.log(`Unexpected path structure: ${filePath}`);
+      return null;
     }
 
-    const key = assemblyAiKey.value();
-    const audioBuffer = Buffer.from(audioData, "base64");
+    const userId = parts[1];
+    const chunkId = parts[2].replace(".wav", "");
 
-    const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
-      method: "POST",
-      headers: { Authorization: key },
-      body: audioBuffer,
-    });
-    if (!uploadRes.ok) {
-      throw new HttpsError(
-        "internal",
-        `Upload failed: ${uploadRes.status}`
-      );
-    }
-    const upload = await uploadRes.json();
+    console.log(`Processing audio chunk: userId=${userId}, chunkId=${chunkId}`);
 
-    const transcriptRes = await fetch(
-      "https://api.assemblyai.com/v2/transcript",
-      {
+    const key = process.env.ASSEMBLYAI_KEY;
+
+    // Read the WAV file from Cloud Storage
+    const bucket = storage.bucket(object.bucket);
+    const file = bucket.file(filePath);
+    const [audioBuffer] = await file.download();
+
+    console.log(`Downloaded ${audioBuffer.length} bytes from ${filePath}`);
+
+    try {
+      // Upload to AssemblyAI
+      const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
         method: "POST",
-        headers: { Authorization: key, "Content-Type": "application/json" },
-        body: JSON.stringify({ audio_url: upload.upload_url }),
+        headers: { Authorization: key },
+        body: audioBuffer,
+      });
+      if (!uploadRes.ok) {
+        throw new Error(`AssemblyAI upload failed: ${uploadRes.status}`);
       }
-    );
-    if (!transcriptRes.ok) {
-      throw new HttpsError(
-        "internal",
-        `Transcript creation failed: ${transcriptRes.status}`
+      const upload = await uploadRes.json();
+
+      // Create transcript
+      const transcriptRes = await fetch(
+        "https://api.assemblyai.com/v2/transcript",
+        {
+          method: "POST",
+          headers: { Authorization: key, "Content-Type": "application/json" },
+          body: JSON.stringify({ audio_url: upload.upload_url }),
+        }
       );
-    }
-    const transcript = await transcriptRes.json();
-
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-      const pollRes = await fetch(
-        `https://api.assemblyai.com/v2/transcript/${transcript.id}`,
-        { headers: { Authorization: key } }
-      );
-      if (!pollRes.ok) {
-        throw new HttpsError(
-          "internal",
-          `Poll failed: ${pollRes.status}`
+      if (!transcriptRes.ok) {
+        throw new Error(
+          `AssemblyAI transcript creation failed: ${transcriptRes.status}`
         );
       }
-      const result = await pollRes.json();
+      const transcript = await transcriptRes.json();
 
-      if (result.status === "completed") {
-        return {
-          transcriptId: result.id,
-          text: result.text,
-          words: result.words,
-          status: "completed",
-        };
+      // Poll for completion
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+        const pollRes = await fetch(
+          `https://api.assemblyai.com/v2/transcript/${transcript.id}`,
+          { headers: { Authorization: key } }
+        );
+        if (!pollRes.ok) {
+          throw new Error(`AssemblyAI poll failed: ${pollRes.status}`);
+        }
+        const result = await pollRes.json();
+
+        if (result.status === "completed") {
+          // Write result to Firestore
+          await db.collection("transcripts").doc(chunkId).set(
+            {
+              transcriptId: result.id,
+              chunkId: chunkId,
+              userId: userId,
+              text: result.text || "",
+              words: result.words || [],
+              status: "completed",
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          console.log(
+            `Transcript completed for ${chunkId}: "${(result.text || "").substring(0, 80)}..."`
+          );
+
+          // Delete the audio file from storage
+          await file.delete();
+          console.log(`Deleted audio file: ${filePath}`);
+
+          return null;
+        }
+
+        if (result.status === "error") {
+          throw new Error(`Transcription error: ${result.error}`);
+        }
       }
-      if (result.status === "error") {
-        throw new HttpsError("internal", `Transcription error: ${result.error}`);
-      }
+
+      throw new Error(
+        `Transcription timed out after ${POLL_TIMEOUT_MS / 1000}s`
+      );
+    } catch (error) {
+      console.error(`Transcription failed for ${chunkId}:`, error);
+
+      // Update Firestore doc with error status
+      await db.collection("transcripts").doc(chunkId).set(
+        {
+          chunkId: chunkId,
+          userId: userId,
+          status: "error",
+          error: error.message,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      return null;
     }
-
-    throw new HttpsError(
-      "deadline-exceeded",
-      `Transcription did not complete within ${POLL_TIMEOUT_MS / 1000}s.`
-    );
-  }
-);
+  });

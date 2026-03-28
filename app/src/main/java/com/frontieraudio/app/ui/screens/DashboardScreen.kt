@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.frontieraudio.app.data.local.entity.TranscriptEntity
+import com.frontieraudio.app.data.repository.FirestoreTranscript
 import com.frontieraudio.app.data.repository.TranscriptRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.SimpleDateFormat
@@ -64,7 +64,7 @@ fun DashboardScreen(
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(transcripts, key = { it.transcriptId }) { transcript ->
+                items(transcripts, key = { it.chunkId }) { transcript ->
                     TranscriptCard(transcript)
                 }
             }
@@ -73,20 +73,30 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun TranscriptCard(transcript: TranscriptEntity) {
+private fun TranscriptCard(transcript: FirestoreTranscript) {
     val dateFormat = SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.getDefault())
-    val displayText = transcript.correctedText ?: transcript.text
+    val isPending = transcript.status == "pending"
+    val displayText = if (isPending) "Transcribing..." else transcript.text
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = if (isPending) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
         ),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = displayText,
                 style = MaterialTheme.typography.bodyMedium,
+                color = if (isPending) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -95,11 +105,13 @@ private fun TranscriptCard(transcript: TranscriptEntity) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = dateFormat.format(Date(transcript.createdAt)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (transcript.createdAt > 0L) {
+                    Text(
+                        text = dateFormat.format(Date(transcript.createdAt)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
 
                 if (transcript.latitude != null && transcript.longitude != null) {
                     Text(

@@ -9,7 +9,15 @@ import android.os.PowerManager
 import android.util.Log
 import com.frontieraudio.app.domain.model.AudioChunk
 import com.frontieraudio.app.domain.model.SpeakerProfile
+import com.frontieraudio.app.data.local.dao.RecordingDao
+import com.frontieraudio.app.data.local.entity.AudioChunkEntity
+import com.frontieraudio.app.data.local.entity.SyncStatus
 import com.frontieraudio.app.service.audio.AudioCaptureManager
+import com.frontieraudio.app.service.sync.WavConverter
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
 import com.frontieraudio.app.service.audio.AudioConfig
 import com.frontieraudio.app.service.audio.BluetoothAudioRouter
 import com.frontieraudio.app.service.audio.RoutingEvent
@@ -18,12 +26,14 @@ import com.frontieraudio.app.service.location.GpsTracker
 import com.frontieraudio.app.service.location.LocationBatchManager
 import com.frontieraudio.app.service.speaker.EmbeddingStore
 import com.frontieraudio.app.service.speaker.SherpaOnnxVerifier
+import java.util.UUID
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +54,7 @@ class RecordingForegroundService : Service() {
     @Inject lateinit var locationBatchManager: LocationBatchManager
     @Inject lateinit var notificationManager: ServiceNotificationManager
     @Inject lateinit var bluetoothAudioRouter: BluetoothAudioRouter
+    @Inject lateinit var recordingDao: RecordingDao
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var pipelineJob: Job? = null
@@ -52,6 +63,10 @@ class RecordingForegroundService : Service() {
     private var bluetoothJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var startTimeMs: Long = 0L
+    private var sessionId: String = UUID.randomUUID().toString()
+
+    private val firestore by lazy { Firebase.firestore }
+    private val cloudStorage by lazy { Firebase.storage }
 
     override fun onCreate() {
         super.onCreate()
@@ -201,7 +216,7 @@ class RecordingForegroundService : Service() {
         startPipeline()
     }
 
-    private fun processChunk(
+    private suspend fun processChunk(
         chunk: AudioChunk,
         profile: SpeakerProfile?,
     ) {
@@ -230,13 +245,64 @@ class RecordingForegroundService : Service() {
             null
         }
 
-        // TODO: Persist verified chunk + location to Room DAO when data layer is available
+        val chunkId = UUID.randomUUID().toString()
+
+        val entity = AudioChunkEntity(
+            chunkId = chunkId,
+            sessionId = sessionId,
+            audioData = verifiedChunk.pcmData,
+            startTimestamp = verifiedChunk.startTimestamp,
+            durationMs = verifiedChunk.durationMs,
+            sampleRate = verifiedChunk.sampleRate,
+            isSpeakerVerified = verifiedChunk.isSpeakerVerified,
+            syncStatus = SyncStatus.PENDING,
+            latitude = location?.latitude,
+            longitude = location?.longitude,
+            locationAccuracy = location?.accuracy,
+        )
+
+        recordingDao.insertChunk(entity)
         Log.d(
             TAG,
-            "Chunk ready: verified=${verifiedChunk.isSpeakerVerified}, " +
-                "duration=${verifiedChunk.durationMs}ms, " +
-                "hasLocation=${location != null}",
+            "Chunk persisted: id=${entity.chunkId}, verified=${entity.isSpeakerVerified}, " +
+                "duration=${entity.durationMs}ms, hasLocation=${location != null}",
         )
+
+        // Upload WAV to Cloud Storage and create Firestore pending doc
+        try {
+            val user = Firebase.auth.currentUser
+                ?: throw IllegalStateException("No authenticated user")
+
+            val wavData = WavConverter.pcmToWav(
+                pcmData = entity.audioData,
+                sampleRate = entity.sampleRate,
+                channels = 1,
+                bitsPerSample = 16,
+            )
+
+            val storagePath = "audio-chunks/${user.uid}/${chunkId}.wav"
+            val storageRef = cloudStorage.reference.child(storagePath)
+
+            Log.d(TAG, "Uploading ${wavData.size} bytes to $storagePath")
+            storageRef.putBytes(wavData).await()
+            Log.d(TAG, "Upload complete for chunk $chunkId")
+
+            // Create pending Firestore doc so the dashboard can show "transcribing..."
+            firestore.collection("transcripts").document(chunkId).set(
+                hashMapOf(
+                    "chunkId" to chunkId,
+                    "userId" to user.uid,
+                    "status" to "pending",
+                    "latitude" to entity.latitude,
+                    "longitude" to entity.longitude,
+                    "createdAt" to com.google.firebase.Timestamp.now(),
+                )
+            ).await()
+
+            Log.d(TAG, "Firestore pending doc created for chunk $chunkId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Cloud Storage upload or Firestore write failed for chunk $chunkId", e)
+        }
     }
 
     private fun startLocationTracking() {

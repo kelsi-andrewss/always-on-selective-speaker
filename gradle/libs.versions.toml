@@ -24,6 +24,7 @@ lifecycleRuntime = "2.8.4"
 coreKtx = "1.13.1"
 firebaseBom = "33.7.0"
 googleServices = "4.4.2"
+coroutinesPlayServices = "1.8.1"
 
 [libraries]
 # Kotlin & Coroutines
@@ -76,6 +77,8 @@ firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.r
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
 firebase-functions = { group = "com.google.firebase", name = "firebase-functions-ktx" }
+firebase-storage = { group = "com.google.firebase", name = "firebase-storage-ktx" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 
 # AndroidX Core
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

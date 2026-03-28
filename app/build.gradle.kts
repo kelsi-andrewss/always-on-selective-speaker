@@ -93,6 +93,10 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.functions)
+    implementation(libs.firebase.storage)
+
+    // Coroutines Play Services (await() for Task<T>)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     // Location
     implementation(libs.play.services.location)
