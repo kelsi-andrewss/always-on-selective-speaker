@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
-import kotlin.test.assertIs
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 
 class AssemblyAiClientTest {
 
@@ -42,7 +42,7 @@ class AssemblyAiClientTest {
 
         @Test
         fun `is an Exception`() {
-            assertIs<Exception>(ApiException(0, ""))
+            assertInstanceOf(Exception::class.java, ApiException(0, ""))
         }
     }
 
@@ -171,8 +171,8 @@ class AssemblyAiClientTest {
 
             assertTrue(result.isFailure)
             val ex = result.exceptionOrNull()
-            assertIs<ApiException>(ex)
-            assertEquals(401, ex.code)
+            val apiEx = assertInstanceOf(ApiException::class.java, ex)
+            assertEquals(401, apiEx.code)
         }
 
         @Test
@@ -187,8 +187,8 @@ class AssemblyAiClientTest {
 
             assertTrue(result.isFailure)
             val ex = result.exceptionOrNull()
-            assertIs<ApiException>(ex)
-            assertEquals(500, ex.code)
+            val apiEx = assertInstanceOf(ApiException::class.java, ex)
+            assertEquals(500, apiEx.code)
         }
 
         // createTranscript
@@ -224,8 +224,8 @@ class AssemblyAiClientTest {
 
             assertTrue(result.isFailure)
             val ex = result.exceptionOrNull()
-            assertIs<ApiException>(ex)
-            assertEquals(403, ex.code)
+            val apiEx = assertInstanceOf(ApiException::class.java, ex)
+            assertEquals(403, apiEx.code)
         }
 
         // getTranscript
@@ -277,8 +277,8 @@ class AssemblyAiClientTest {
 
             assertTrue(result.isFailure)
             val ex = result.exceptionOrNull()
-            assertIs<ApiException>(ex)
-            assertEquals(404, ex.code)
+            val apiEx = assertInstanceOf(ApiException::class.java, ex)
+            assertEquals(404, apiEx.code)
         }
 
         // Auth header
