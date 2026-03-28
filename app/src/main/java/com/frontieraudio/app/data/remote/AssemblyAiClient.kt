@@ -50,7 +50,7 @@ interface AssemblyAiApi {
     suspend fun getTranscript(@Path("id") transcriptId: String): Response<TranscriptResponse>
 }
 
-class AssemblyAiClient(apiKey: String) {
+class AssemblyAiClient(apiKey: String, internal val baseUrl: String = BASE_URL) {
 
     private val api: AssemblyAiApi
 
@@ -75,7 +75,7 @@ class AssemblyAiClient(apiKey: String) {
             .build()
 
         api = Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
