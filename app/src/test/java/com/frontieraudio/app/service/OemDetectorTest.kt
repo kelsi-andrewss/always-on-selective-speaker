@@ -10,12 +10,16 @@ import org.junit.jupiter.api.Test
 class OemDetectorTest {
 
     private fun setManufacturer(value: String) {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafeField = unsafeClass.getDeclaredField("theUnsafe")
+        unsafeField.isAccessible = true
+        val unsafe = unsafeField.get(null)
+
         val field = Build::class.java.getDeclaredField("MANUFACTURER")
-        field.isAccessible = true
-        val modifiersField = java.lang.reflect.Field::class.java.getDeclaredField("modifiers")
-        modifiersField.isAccessible = true
-        modifiersField.setInt(field, field.modifiers and java.lang.reflect.Modifier.FINAL.inv())
-        field.set(null, value)
+        val offset = unsafeClass.getMethod("staticFieldOffset", java.lang.reflect.Field::class.java)
+            .invoke(unsafe, field) as Long
+        unsafeClass.getMethod("putObject", Any::class.java, Long::class.javaPrimitiveType, Any::class.java)
+            .invoke(unsafe, Build::class.java, offset, value)
     }
 
     // -- detect() --
