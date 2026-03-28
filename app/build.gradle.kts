@@ -98,11 +98,19 @@ dependencies {
     // Coroutines Play Services (await() for Task<T>)
     implementation(libs.kotlinx.coroutines.play.services)
 
+    // Credential Manager
+    implementation(libs.credential.manager)
+    implementation(libs.credential.manager.play.services)
+    implementation(libs.google.id.identity)
+
     // Location
     implementation(libs.play.services.location)
 
     // ML / ONNX
     implementation(libs.onnxruntime.android)
+
+    // DSP
+    implementation(libs.jtransforms)
 
     // Testing
     testImplementation(libs.junit.jupiter.api)

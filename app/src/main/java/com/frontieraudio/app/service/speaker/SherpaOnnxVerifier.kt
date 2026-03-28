@@ -9,6 +9,9 @@ import com.frontieraudio.app.domain.model.AudioChunk
 import com.frontieraudio.app.domain.model.SpeakerProfile
 import com.frontieraudio.app.service.audio.AudioConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.nio.FloatBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,6 +29,12 @@ class SherpaOnnxVerifier @Inject constructor(
     private val ortEnvironment: OrtEnvironment = OrtEnvironment.getEnvironment()
     private var ortSession: OrtSession? = null
 
+    private val _lastVerificationResult = MutableStateFlow<VerificationResult?>(null)
+    val lastVerificationResult: StateFlow<VerificationResult?> = _lastVerificationResult.asStateFlow()
+
+    private val _lastVerificationTimestamp = MutableStateFlow(0L)
+    val lastVerificationTimestamp: StateFlow<Long> = _lastVerificationTimestamp.asStateFlow()
+
     fun init() {
         if (ortSession != null) return
         val modelBytes = context.assets.open(MODEL_FILE).readBytes()
@@ -42,21 +51,38 @@ class SherpaOnnxVerifier @Inject constructor(
         val session = ortSession
             ?: throw IllegalStateException("SherpaOnnxVerifier not initialized. Call init() first.")
 
-        val floatSamples = pcmBytesToFloat(audioChunk.pcmData)
+        val rawSamples = pcmBytesToFloat(audioChunk.pcmData)
 
+        // Trim leading/trailing silence using simple energy threshold
+        val floatSamples = trimSilence(rawSamples)
+        Log.d(TAG, "Trimmed ${rawSamples.size} -> ${floatSamples.size} samples")
+
+        // Extract mel fbank features: [numFrames, 80]
+        val fbankFlat = MelFbankExtractor.extract(floatSamples)
+        val numFrames = MelFbankExtractor.numFrames(floatSamples.size)
+        val numMelBins = 80
+
+        if (numFrames == 0) {
+            throw IllegalArgumentException("Audio too short for feature extraction")
+        }
+
+        Log.d(TAG, "Extracted $numFrames fbank frames from ${floatSamples.size} samples")
+
+        // Model expects [N, T, 80] where N=batch, T=time frames
         val inputTensor = OnnxTensor.createTensor(
             ortEnvironment,
-            FloatBuffer.wrap(floatSamples),
-            longArrayOf(1, floatSamples.size.toLong()),
+            FloatBuffer.wrap(fbankFlat),
+            longArrayOf(1, numFrames.toLong(), numMelBins.toLong()),
         )
 
-        val results = session.run(mapOf("input" to inputTensor))
+        val results = session.run(mapOf("x" to inputTensor))
 
         val embedding = extractOutputEmbedding(results)
 
         inputTensor.close()
         results.close()
 
+        Log.d(TAG, "Embedding dim=${embedding.size}")
         return normalize(embedding)
     }
 
@@ -67,10 +93,13 @@ class SherpaOnnxVerifier @Inject constructor(
     ): VerificationResult {
         val embedding = extractEmbedding(audioChunk)
         val similarity = cosineSimilarity(embedding, profile.embeddingVector)
-        return VerificationResult(
+        val result = VerificationResult(
             isMatch = similarity >= threshold,
             similarity = similarity,
         )
+        _lastVerificationResult.value = result
+        _lastVerificationTimestamp.value = System.currentTimeMillis()
+        return result
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -85,6 +114,50 @@ class SherpaOnnxVerifier @Inject constructor(
             is FloatArray -> value
             else -> throw IllegalStateException("Unexpected ONNX output type: ${value?.javaClass}")
         }
+    }
+
+    /**
+     * Trim leading and trailing silence using RMS energy in 10ms windows.
+     * Keeps only the region where energy exceeds the threshold.
+     */
+    private fun trimSilence(samples: FloatArray, threshold: Float = 0.002f): FloatArray {
+        val windowSize = AudioConfig.SAMPLE_RATE / 100  // 10ms = 160 samples
+        if (samples.size < windowSize) return samples
+
+        // Compute RMS per window
+        val numWindows = samples.size / windowSize
+        var start = 0
+        var end = samples.size
+
+        // Find first window above threshold
+        for (w in 0 until numWindows) {
+            var sum = 0f
+            for (i in 0 until windowSize) {
+                val s = samples[w * windowSize + i]
+                sum += s * s
+            }
+            val rms = kotlin.math.sqrt(sum / windowSize)
+            if (rms > threshold) {
+                start = (w * windowSize - windowSize).coerceAtLeast(0)  // include one window before
+                break
+            }
+        }
+
+        // Find last window above threshold
+        for (w in numWindows - 1 downTo 0) {
+            var sum = 0f
+            for (i in 0 until windowSize) {
+                val s = samples[w * windowSize + i]
+                sum += s * s
+            }
+            val rms = kotlin.math.sqrt(sum / windowSize)
+            if (rms > threshold) {
+                end = ((w + 2) * windowSize).coerceAtMost(samples.size)  // include one window after
+                break
+            }
+        }
+
+        return if (end > start) samples.copyOfRange(start, end) else samples
     }
 
     private fun pcmBytesToFloat(pcmData: ByteArray): FloatArray {
@@ -108,8 +181,8 @@ class SherpaOnnxVerifier @Inject constructor(
     companion object {
         private const val TAG = "SherpaOnnxVerifier"
         private const val MODEL_FILE = "ecapa_tdnn.onnx"
-        const val EMBEDDING_DIM = 192
-        const val DEFAULT_THRESHOLD = 0.65f
+        const val EMBEDDING_DIM = 512
+        const val DEFAULT_THRESHOLD = 0.35f
 
         fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
             require(a.size == b.size) { "Vectors must have same dimension" }

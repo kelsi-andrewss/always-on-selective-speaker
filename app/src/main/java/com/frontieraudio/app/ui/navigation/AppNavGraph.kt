@@ -11,8 +11,10 @@ import com.frontieraudio.app.service.speaker.SherpaOnnxVerifier
 import com.frontieraudio.app.ui.screens.DashboardScreen
 import com.frontieraudio.app.ui.screens.EnrollmentScreen
 import com.frontieraudio.app.ui.screens.OnboardingScreen
+import com.frontieraudio.app.ui.screens.SignInScreen
 
 object Routes {
+    const val SIGN_IN = "sign_in"
     const val ONBOARDING = "onboarding"
     const val ENROLLMENT = "enrollment"
     const val DASHBOARD = "dashboard"
@@ -29,6 +31,15 @@ fun AppNavGraph(
     onStartService: () -> Unit,
 ) {
     NavHost(navController = navController, startDestination = startDestination) {
+        composable(Routes.SIGN_IN) {
+            SignInScreen(
+                onAuthenticated = {
+                    navController.navigate(Routes.ONBOARDING) {
+                        popUpTo(Routes.SIGN_IN) { inclusive = true }
+                    }
+                },
+            )
+        }
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onComplete = {
@@ -53,7 +64,13 @@ fun AppNavGraph(
             )
         }
         composable(Routes.DASHBOARD) {
-            DashboardScreen()
+            DashboardScreen(
+                onReEnroll = {
+                    navController.navigate(Routes.ENROLLMENT) {
+                        popUpTo(Routes.DASHBOARD) { inclusive = true }
+                    }
+                },
+            )
         }
     }
 }

@@ -45,6 +45,7 @@ class TranscriptRepository @Inject constructor() {
                 }
                 if (snapshot == null) return@addSnapshotListener
 
+                Log.d(TAG, "Snapshot received: ${snapshot.documents.size} docs")
                 val list = snapshot.documents.mapNotNull { doc ->
                     val status = doc.getString("status") ?: "pending"
                     val text = doc.getString("text") ?: ""

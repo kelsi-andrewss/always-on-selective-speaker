@@ -77,7 +77,7 @@ class TranscriptionSyncWorker(
             .await()
 
         @Suppress("UNCHECKED_CAST")
-        val data = result.data as Map<String, Any>
+        val data = result.getData() as Map<String, Any>
 
         val status = data["status"] as? String
         if (status == "error" || status != "completed") {

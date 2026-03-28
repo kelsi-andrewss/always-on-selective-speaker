@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.frontieraudio.app.domain.model.AudioChunk
 import com.frontieraudio.app.service.audio.AudioCaptureManager
+import com.frontieraudio.app.service.audio.AudioConfig
 import com.frontieraudio.app.service.audio.SileroVadProcessor
 import com.frontieraudio.app.service.speaker.EnrollmentManager
 import com.frontieraudio.app.service.speaker.EnrollmentQualityException
@@ -63,8 +64,8 @@ private const val TAG = "EnrollmentScreen"
 
 private val ENROLLMENT_PROMPTS = listOf(
     "Please read aloud:\n\"The quick brown fox jumps over the lazy dog near the river bank.\"",
-    "Please read aloud:\n\"She sells seashells by the seashore every sunny morning.\"",
-    "Please read aloud:\n\"Pack my box with five dozen liquor jugs and bring them here.\"",
+    "Please read aloud (same sentence):\n\"The quick brown fox jumps over the lazy dog near the river bank.\"",
+    "Please read aloud (one more time):\n\"The quick brown fox jumps over the lazy dog near the river bank.\"",
 )
 
 private enum class EnrollmentState {
@@ -99,39 +100,64 @@ fun EnrollmentScreen(
         }
     }
 
+    // Accumulate all raw frames during recording for manual stop
+    val recordedFrames = remember { mutableListOf<ShortArray>() }
+
+    fun stopAndCapture() {
+        recordingJob?.cancel()
+        audioCaptureManager.stop()
+        if (recordedFrames.isNotEmpty()) {
+            val totalSamples = recordedFrames.sumOf { it.size }
+            val pcmData = ByteArray(totalSamples * AudioConfig.BYTES_PER_SAMPLE)
+            var offset = 0
+            for (frame in recordedFrames) {
+                for (sample in frame) {
+                    pcmData[offset++] = (sample.toInt() and 0xFF).toByte()
+                    pcmData[offset++] = (sample.toInt() shr 8 and 0xFF).toByte()
+                }
+            }
+            val durationMs = (totalSamples * 1000) / audioCaptureManager.currentSampleRate
+            if (durationMs >= MIN_UTTERANCE_MS) {
+                val chunk = AudioChunk(
+                    pcmData = pcmData,
+                    startTimestamp = System.currentTimeMillis(),
+                    durationMs = durationMs,
+                    sampleRate = audioCaptureManager.currentSampleRate,
+                    isSpeakerVerified = false,
+                )
+                capturedUtterances.add(chunk)
+                currentStep++
+                state = if (capturedUtterances.size >= EnrollmentManager.REQUIRED_UTTERANCES) {
+                    EnrollmentState.PROCESSING
+                } else {
+                    EnrollmentState.READY
+                }
+            } else {
+                state = EnrollmentState.READY
+                errorMessage = "Too short — please speak for at least 2 seconds."
+            }
+            recordedFrames.clear()
+        } else {
+            state = EnrollmentState.READY
+        }
+    }
+
     fun startRecording() {
         state = EnrollmentState.RECORDING
         errorMessage = null
         audioLevel = 0f
+        recordedFrames.clear()
 
         recordingJob = scope.launch {
             try {
                 val audioFlow = audioCaptureManager.start()
 
-                // Tap raw frames for audio level, then feed into VAD
-                val levelTappedFlow = flow {
-                    audioFlow.collect { frame ->
-                        audioLevel = computeRms(frame)
-                        emit(frame)
-                    }
-                }
-
-                val speechFlow = vadProcessor.collectSpeechSegment(levelTappedFlow)
-
-                speechFlow.collect { chunk ->
-                    if (chunk.durationMs >= MIN_UTTERANCE_MS) {
-                        audioCaptureManager.stop()
-                        capturedUtterances.add(chunk)
-                        currentStep++
-                        state = if (capturedUtterances.size >= EnrollmentManager.REQUIRED_UTTERANCES) {
-                            EnrollmentState.PROCESSING
-                        } else {
-                            EnrollmentState.READY
-                        }
-                        return@collect
-                    }
+                audioFlow.collect { frame ->
+                    audioLevel = computeRms(frame)
+                    recordedFrames.add(frame.copyOf())
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) return@launch
                 Log.e(TAG, "Recording failed", e)
                 state = EnrollmentState.FAILED
                 errorMessage = "Recording failed: ${e.message}"
@@ -226,15 +252,23 @@ fun EnrollmentScreen(
                 AudioLevelIndicator(level = audioLevel)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Listening... Speak now.",
+                    text = "Listening... Tap Done when finished.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { stopAndCapture() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Done Speaking")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = {
                         recordingJob?.cancel()
                         audioCaptureManager.stop()
+                        recordedFrames.clear()
                         state = EnrollmentState.READY
                     },
                 ) {

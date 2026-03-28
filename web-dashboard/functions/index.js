@@ -14,6 +14,7 @@ exports.transcribeOnUpload = functions
     secrets: ["ASSEMBLYAI_KEY"],
     timeoutSeconds: 300,
     memory: "512MB",
+    maxInstances: 4,  // stay under AssemblyAI's 5 concurrent limit
   })
   .storage.object()
   .onFinalize(async (object) => {
@@ -62,7 +63,7 @@ exports.transcribeOnUpload = functions
         {
           method: "POST",
           headers: { Authorization: key, "Content-Type": "application/json" },
-          body: JSON.stringify({ audio_url: upload.upload_url }),
+          body: JSON.stringify({ audio_url: upload.upload_url, speech_models: ["universal-2"] }),
         }
       );
       if (!transcriptRes.ok) {

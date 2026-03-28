@@ -64,6 +64,34 @@ class RecordingForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var startTimeMs: Long = 0L
     private var sessionId: String = UUID.randomUUID().toString()
+    private val pendingChunks = mutableListOf<AudioChunk>()
+    private var flushJob: Job? = null
+
+    companion object {
+        private const val TAG = "RecordingFGService"
+        private const val WAKE_LOCK_TAG = "com.frontieraudio.app:recording"
+        private const val MIN_BATCH_DURATION_MS = 5000  // batch at least 5s of speech
+        private const val FLUSH_TIMEOUT_MS = 10_000L    // flush after 10s of no new speech
+        const val ACTION_STOP = "com.frontieraudio.app.action.STOP_RECORDING"
+
+        private val _isRunning = MutableStateFlow(false)
+        val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
+        private val _pipelineState = MutableStateFlow("Listening")
+        val pipelineState: StateFlow<String> = _pipelineState.asStateFlow()
+
+        fun start(context: Context) {
+            val intent = Intent(context, RecordingForegroundService::class.java)
+            context.startForegroundService(intent)
+        }
+
+        fun stop(context: Context) {
+            val intent = Intent(context, RecordingForegroundService::class.java).apply {
+                action = ACTION_STOP
+            }
+            context.startService(intent)
+        }
+    }
 
     private val firestore by lazy { Firebase.firestore }
     private val cloudStorage by lazy { Firebase.storage }
@@ -89,6 +117,12 @@ class RecordingForegroundService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
         )
+
+        // Cancel any existing pipeline (handles re-enrollment restart)
+        pipelineJob?.cancel()
+        locationJob?.cancel()
+        notificationJob?.cancel()
+        bluetoothJob?.cancel()
 
         _isRunning.value = true
         startPipeline()
@@ -177,7 +211,11 @@ class RecordingForegroundService : Service() {
                 val speechSegments = vadProcessor.collectSpeechSegment(audioFrames)
 
                 speechSegments.collect { chunk ->
+                    _pipelineState.value = "Speech detected — verifying..."
                     processChunk(chunk, profile)
+                    if (_pipelineState.value == "Speech detected — verifying...") {
+                        _pipelineState.value = "Listening"
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Audio pipeline error", e)
@@ -225,6 +263,7 @@ class RecordingForegroundService : Service() {
                 val result = sherpaOnnxVerifier.verify(chunk, profile)
                 if (result.isMatch) {
                     Log.d(TAG, "Speaker verified (similarity=${result.similarity})")
+                    _pipelineState.value = "Speaker verified"
                     chunk.copy(isSpeakerVerified = true)
                 } else {
                     Log.d(TAG, "Speaker not matched (similarity=${result.similarity})")
@@ -245,63 +284,116 @@ class RecordingForegroundService : Service() {
             null
         }
 
+        // Only transcribe verified speaker's speech (saves API quota)
+        if (profile != null && !verifiedChunk.isSpeakerVerified) {
+            Log.d(TAG, "Skipping unverified chunk (${verifiedChunk.durationMs}ms)")
+            _pipelineState.value = "Other speaker — skipped"
+            serviceScope.launch { delay(2000); if (_pipelineState.value == "Other speaker — skipped") _pipelineState.value = "Listening" }
+            return
+        }
+
+        // Batch into pending buffer — flush when enough audio accumulates
+        synchronized(pendingChunks) {
+            pendingChunks.add(verifiedChunk)
+            val totalMs = pendingChunks.sumOf { it.durationMs }
+
+            // Reset the flush timer on each new chunk
+            flushJob?.cancel()
+
+            if (totalMs >= MIN_BATCH_DURATION_MS) {
+                flushPendingChunks(location)
+            } else {
+                Log.d(TAG, "Buffering speech: ${totalMs}ms / ${MIN_BATCH_DURATION_MS}ms")
+                _pipelineState.value = "Buffering ${totalMs / 1000}s / ${MIN_BATCH_DURATION_MS / 1000}s"
+                // Flush after timeout if no more speech arrives
+                flushJob = serviceScope.launch {
+                    delay(FLUSH_TIMEOUT_MS)
+                    synchronized(pendingChunks) {
+                        if (pendingChunks.isNotEmpty()) {
+                            Log.d(TAG, "Flush timeout — uploading buffered speech")
+                            flushPendingChunks(location)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun flushPendingChunks(
+        location: com.frontieraudio.app.domain.model.LocationPoint?,
+    ) {
+        val chunks = synchronized(pendingChunks) {
+            val copy = ArrayList(pendingChunks)
+            pendingChunks.clear()
+            copy
+        }
+        if (chunks.isEmpty()) return
+
+        val totalSamples = chunks.sumOf { it.pcmData.size }
+        val combined = ByteArray(totalSamples)
+        var offset = 0
+        for (c in chunks) {
+            System.arraycopy(c.pcmData, 0, combined, offset, c.pcmData.size)
+            offset += c.pcmData.size
+        }
+        val totalDurationMs = chunks.sumOf { it.durationMs }
+        val sampleRate = chunks.first().sampleRate
+
         val chunkId = UUID.randomUUID().toString()
 
         val entity = AudioChunkEntity(
             chunkId = chunkId,
             sessionId = sessionId,
-            audioData = verifiedChunk.pcmData,
-            startTimestamp = verifiedChunk.startTimestamp,
-            durationMs = verifiedChunk.durationMs,
-            sampleRate = verifiedChunk.sampleRate,
-            isSpeakerVerified = verifiedChunk.isSpeakerVerified,
+            audioData = combined,
+            startTimestamp = chunks.first().startTimestamp,
+            durationMs = totalDurationMs,
+            sampleRate = sampleRate,
+            isSpeakerVerified = true,
             syncStatus = SyncStatus.PENDING,
             latitude = location?.latitude,
             longitude = location?.longitude,
             locationAccuracy = location?.accuracy,
         )
 
-        recordingDao.insertChunk(entity)
-        Log.d(
-            TAG,
-            "Chunk persisted: id=${entity.chunkId}, verified=${entity.isSpeakerVerified}, " +
-                "duration=${entity.durationMs}ms, hasLocation=${location != null}",
-        )
+        serviceScope.launch {
+            recordingDao.insertChunk(entity)
+            Log.d(TAG, "Batched chunk persisted: id=$chunkId, duration=${totalDurationMs}ms, segments=${chunks.size}")
+            _pipelineState.value = "Uploading..."
 
-        // Upload WAV to Cloud Storage and create Firestore pending doc
-        try {
-            val user = Firebase.auth.currentUser
-                ?: throw IllegalStateException("No authenticated user")
+            try {
+                val user = Firebase.auth.currentUser
+                    ?: throw IllegalStateException("No authenticated user")
 
-            val wavData = WavConverter.pcmToWav(
-                pcmData = entity.audioData,
-                sampleRate = entity.sampleRate,
-                channels = 1,
-                bitsPerSample = 16,
-            )
-
-            val storagePath = "audio-chunks/${user.uid}/${chunkId}.wav"
-            val storageRef = cloudStorage.reference.child(storagePath)
-
-            Log.d(TAG, "Uploading ${wavData.size} bytes to $storagePath")
-            storageRef.putBytes(wavData).await()
-            Log.d(TAG, "Upload complete for chunk $chunkId")
-
-            // Create pending Firestore doc so the dashboard can show "transcribing..."
-            firestore.collection("transcripts").document(chunkId).set(
-                hashMapOf(
-                    "chunkId" to chunkId,
-                    "userId" to user.uid,
-                    "status" to "pending",
-                    "latitude" to entity.latitude,
-                    "longitude" to entity.longitude,
-                    "createdAt" to com.google.firebase.Timestamp.now(),
+                val wavData = WavConverter.pcmToWav(
+                    pcmData = entity.audioData,
+                    sampleRate = entity.sampleRate,
+                    channels = 1,
+                    bitsPerSample = 16,
                 )
-            ).await()
 
-            Log.d(TAG, "Firestore pending doc created for chunk $chunkId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Cloud Storage upload or Firestore write failed for chunk $chunkId", e)
+                val storagePath = "audio-chunks/${user.uid}/${chunkId}.wav"
+                val storageRef = cloudStorage.reference.child(storagePath)
+
+                Log.d(TAG, "Uploading ${wavData.size} bytes to $storagePath")
+                storageRef.putBytes(wavData).await()
+
+                firestore.collection("transcripts").document(chunkId).set(
+                    hashMapOf(
+                        "chunkId" to chunkId,
+                        "userId" to user.uid,
+                        "status" to "pending",
+                        "latitude" to entity.latitude,
+                        "longitude" to entity.longitude,
+                        "createdAt" to com.google.firebase.Timestamp.now(),
+                    )
+                ).await()
+
+                Log.d(TAG, "Batched chunk uploaded: $chunkId")
+                _pipelineState.value = "Transcribing..."
+                serviceScope.launch { delay(5000); if (_pipelineState.value == "Transcribing...") _pipelineState.value = "Listening" }
+            } catch (e: Exception) {
+                Log.e(TAG, "Upload failed for batched chunk $chunkId", e)
+            }
         }
     }
 
@@ -355,24 +447,4 @@ class RecordingForegroundService : Service() {
         wakeLock = null
     }
 
-    companion object {
-        private const val TAG = "RecordingFGService"
-        private const val WAKE_LOCK_TAG = "com.frontieraudio.app:recording"
-        const val ACTION_STOP = "com.frontieraudio.app.action.STOP_RECORDING"
-
-        private val _isRunning = MutableStateFlow(false)
-        val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-
-        fun start(context: Context) {
-            val intent = Intent(context, RecordingForegroundService::class.java)
-            context.startForegroundService(intent)
-        }
-
-        fun stop(context: Context) {
-            val intent = Intent(context, RecordingForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
-        }
-    }
 }

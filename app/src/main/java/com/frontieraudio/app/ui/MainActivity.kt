@@ -1,7 +1,6 @@
 package com.frontieraudio.app.ui
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
@@ -22,7 +21,6 @@ import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -36,32 +34,23 @@ class MainActivity : ComponentActivity() {
 
     private var startDestination by mutableStateOf<String?>(null)
 
-    companion object {
-        private const val TAG = "MainActivity"
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch {
-            try {
-                if (Firebase.auth.currentUser == null) {
-                    Firebase.auth.signInAnonymously().await()
-                    Log.d(TAG, "Anonymous auth completed: ${Firebase.auth.currentUser?.uid}")
+            if (Firebase.auth.currentUser == null) {
+                startDestination = Routes.SIGN_IN
+            } else {
+                val enrolled = embeddingStore.isEnrolled()
+                val serviceRunning = RecordingForegroundService.isRunning.value
+                startDestination = when {
+                    serviceRunning -> Routes.DASHBOARD
+                    enrolled -> {
+                        RecordingForegroundService.start(this@MainActivity)
+                        Routes.DASHBOARD
+                    }
+                    else -> Routes.ONBOARDING
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Anonymous auth failed, continuing without auth", e)
-            }
-
-            val enrolled = embeddingStore.isEnrolled()
-            val serviceRunning = RecordingForegroundService.isRunning.value
-            startDestination = when {
-                serviceRunning -> Routes.DASHBOARD
-                enrolled -> {
-                    RecordingForegroundService.start(this@MainActivity)
-                    Routes.DASHBOARD
-                }
-                else -> Routes.ONBOARDING
             }
         }
 

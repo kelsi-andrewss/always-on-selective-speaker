@@ -8,7 +8,7 @@ object AudioConfig {
     const val SAMPLE_RATE = 16_000
     const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
     const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-    const val FRAME_SIZE_MS = 30
+    const val FRAME_SIZE_MS = 32
     const val BYTES_PER_SAMPLE = 2
 
     val FRAME_SIZE_SAMPLES: Int = SAMPLE_RATE * FRAME_SIZE_MS / 1000
@@ -19,6 +19,6 @@ object AudioConfig {
     val BUFFER_SIZE: Int
         get() = MIN_BUFFER_SIZE.coerceAtLeast(FRAME_SIZE_SAMPLES * BYTES_PER_SAMPLE) * 2
 
-    val PRIMARY_AUDIO_SOURCE: Int = MediaRecorder.AudioSource.VOICE_COMMUNICATION
+    val PRIMARY_AUDIO_SOURCE: Int = MediaRecorder.AudioSource.UNPROCESSED
     val FALLBACK_AUDIO_SOURCE: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION
 }

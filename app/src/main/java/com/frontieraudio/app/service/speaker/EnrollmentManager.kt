@@ -69,9 +69,11 @@ class EnrollmentManager @Inject constructor(
         for (i in embeddings.indices) {
             for (j in i + 1 until embeddings.size) {
                 val sim = SherpaOnnxVerifier.cosineSimilarity(embeddings[i], embeddings[j])
+                Log.d(TAG, "Pairwise similarity [$i,$j] = $sim")
                 if (sim < minSim) minSim = sim
             }
         }
+        Log.d(TAG, "Min pairwise similarity = $minSim")
         return minSim
     }
 
