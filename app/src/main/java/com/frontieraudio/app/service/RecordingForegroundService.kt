@@ -33,11 +33,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
@@ -71,7 +73,11 @@ class RecordingForegroundService : Service() {
         private const val TAG = "RecordingFGService"
         private const val WAKE_LOCK_TAG = "com.frontieraudio.app:recording"
         private const val MIN_BATCH_DURATION_MS = 5000  // batch at least 5s of speech
+        private const val MIN_VERIFY_DURATION_MS = 5000 // accumulate 5s+ before speaker verification
         private const val FLUSH_TIMEOUT_MS = 10_000L    // flush after 10s of no new speech
+        private const val THRESHOLD_FACTOR = 0.45f      // adaptive threshold = qualityScore * factor
+        private const val MIN_THRESHOLD = 0.25f
+        private const val MAX_THRESHOLD = 0.55f
         const val ACTION_STOP = "com.frontieraudio.app.action.STOP_RECORDING"
 
         private val _isRunning = MutableStateFlow(false)
@@ -79,6 +85,9 @@ class RecordingForegroundService : Service() {
 
         private val _pipelineState = MutableStateFlow("Listening")
         val pipelineState: StateFlow<String> = _pipelineState.asStateFlow()
+
+        private val _micState = MutableStateFlow("mic —%")
+        val micState: StateFlow<String> = _micState.asStateFlow()
 
         fun start(context: Context) {
             val intent = Intent(context, RecordingForegroundService::class.java)
@@ -206,19 +215,68 @@ class RecordingForegroundService : Service() {
                 Log.w(TAG, "No enrolled speaker profile — running VAD only, verification skipped")
             }
 
-            try {
-                val audioFrames = audioCaptureManager.start()
-                val speechSegments = vadProcessor.collectSpeechSegment(audioFrames)
+            val verifyThreshold = if (profile != null) {
+                val t = (profile.qualityScore * THRESHOLD_FACTOR).coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
+                Log.i(TAG, "Adaptive threshold: ${profile.qualityScore} * $THRESHOLD_FACTOR = $t")
+                t
+            } else {
+                SherpaOnnxVerifier.DEFAULT_THRESHOLD
+            }
 
-                speechSegments.collect { chunk ->
-                    _pipelineState.value = "Speech detected — verifying..."
-                    processChunk(chunk, profile)
-                    if (_pipelineState.value == "Speech detected — verifying...") {
-                        _pipelineState.value = "Listening"
+            while (isActive) {
+                try {
+                    val audioFrames = audioCaptureManager.start()
+
+                    val monitoredFrames = audioFrames.onEach { frame ->
+                        var maxAbs: Short = 0
+                        for (s in frame) {
+                            val abs = if (s < 0) (-s).toShort() else s
+                            if (abs > maxAbs) maxAbs = abs
+                        }
+                        val level = (maxAbs.toFloat() / 32768f * 100).toInt()
+                        val vad = vadProcessor.lastVadResult.value
+                        _micState.value = if (vad.isSpeech) {
+                            "Hearing voice — $level%"
+                        } else {
+                            "Listening — $level%"
+                        }
                     }
+
+                    val speechSegments = vadProcessor.collectSpeechSegment(monitoredFrames)
+
+                    val verifyBuffer = mutableListOf<AudioChunk>()
+                    var verifyBufferMs = 0L
+
+                    speechSegments.collect { chunk ->
+                        verifyBuffer.add(chunk)
+                        verifyBufferMs += chunk.durationMs
+
+                        if (verifyBufferMs >= MIN_VERIFY_DURATION_MS) {
+                            _pipelineState.value = "Verifying ${verifyBufferMs / 1000}s of speech..."
+                            val combined = combineChunksForVerification(verifyBuffer)
+                            processChunk(combined, profile, verifyThreshold)
+                            verifyBuffer.clear()
+                            verifyBufferMs = 0
+                        } else {
+                            _pipelineState.value = "Buffering speech ${verifyBufferMs / 1000}s / ${MIN_VERIFY_DURATION_MS / 1000}s"
+                        }
+                    }
+
+                    // Flush remaining buffer if enough audio
+                    if (verifyBuffer.isNotEmpty() && verifyBufferMs >= 3000) {
+                        val combined = combineChunksForVerification(verifyBuffer)
+                        processChunk(combined, profile, verifyThreshold)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Audio pipeline error", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Audio pipeline error", e)
+
+                if (isActive) {
+                    Log.w(TAG, "Audio pipeline ended — restarting in 2s")
+                    _pipelineState.value = "Restarting..."
+                    delay(2000)
+                    _pipelineState.value = "Listening"
+                }
             }
         }
     }
@@ -254,19 +312,39 @@ class RecordingForegroundService : Service() {
         startPipeline()
     }
 
+    private fun combineChunksForVerification(chunks: List<AudioChunk>): AudioChunk {
+        val totalBytes = chunks.sumOf { it.pcmData.size }
+        val combined = ByteArray(totalBytes)
+        var offset = 0
+        for (c in chunks) {
+            System.arraycopy(c.pcmData, 0, combined, offset, c.pcmData.size)
+            offset += c.pcmData.size
+        }
+        return AudioChunk(
+            pcmData = combined,
+            startTimestamp = chunks.first().startTimestamp,
+            durationMs = chunks.sumOf { it.durationMs },
+            sampleRate = chunks.first().sampleRate,
+            isSpeakerVerified = false,
+        )
+    }
+
     private suspend fun processChunk(
         chunk: AudioChunk,
         profile: SpeakerProfile?,
+        threshold: Float = SherpaOnnxVerifier.DEFAULT_THRESHOLD,
     ) {
         val verifiedChunk = if (profile != null) {
             try {
-                val result = sherpaOnnxVerifier.verify(chunk, profile)
+                val result = sherpaOnnxVerifier.verify(chunk, profile, threshold)
+                val simPct = (result.similarity * 100).toInt()
                 if (result.isMatch) {
                     Log.d(TAG, "Speaker verified (similarity=${result.similarity})")
-                    _pipelineState.value = "Speaker verified"
+                    _pipelineState.value = "YOU — verified ($simPct%)"
                     chunk.copy(isSpeakerVerified = true)
                 } else {
                     Log.d(TAG, "Speaker not matched (similarity=${result.similarity})")
+                    _pipelineState.value = "Other speaker ($simPct% < ${(threshold * 100).toInt()}%)"
                     chunk
                 }
             } catch (e: Exception) {

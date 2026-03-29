@@ -56,7 +56,6 @@ fun AppNavGraph(
                 verifier = verifier,
                 enrollmentManager = enrollmentManager,
                 onEnrollmentComplete = {
-                    onStartService()
                     navController.navigate(Routes.DASHBOARD) {
                         popUpTo(Routes.ENROLLMENT) { inclusive = true }
                     }

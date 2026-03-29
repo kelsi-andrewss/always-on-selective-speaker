@@ -32,7 +32,7 @@ class AudioCaptureManager @Inject constructor() {
 
     @SuppressLint("MissingPermission")
     fun start(): Flow<ShortArray> = callbackFlow {
-        val record = createAudioRecord(currentSampleRate, audioSourceInt(currentSource))
+        var record = createAudioRecord(currentSampleRate, audioSourceInt(currentSource))
             ?: throw IllegalStateException("Failed to initialize AudioRecord with any audio source")
 
         audioRecord = record
@@ -64,11 +64,12 @@ class AudioCaptureManager @Inject constructor() {
                                     record.stop()
                                     record.release()
                                     audioRecord = fallback
+                                    record = fallback
                                     currentSource = AudioSource.VOICE_RECOGNITION
                                     fallback.startRecording()
                                     silentFrameCount = 0
                                     discardFramesUntil = System.currentTimeMillis() + DISCARD_AFTER_SWITCH_MS
-                                    break
+                                    continue
                                 }
                                 silentFrameCount = 0
                             }
@@ -94,7 +95,22 @@ class AudioCaptureManager @Inject constructor() {
             }
         }
 
-        awaitClose { stop() }
+        // Read loop exited (error or external stop) — close channel so collectors complete
+        channel.close()
+
+        awaitClose {
+            try {
+                if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    record.stop()
+                }
+                record.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error releasing AudioRecord in awaitClose", e)
+            }
+            if (audioRecord === record) {
+                audioRecord = null
+            }
+        }
     }
 
     fun recreateForDevice(sampleRate: Int, audioSource: Int) {

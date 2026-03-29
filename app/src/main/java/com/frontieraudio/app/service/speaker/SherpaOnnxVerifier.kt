@@ -52,10 +52,14 @@ class SherpaOnnxVerifier @Inject constructor(
             ?: throw IllegalStateException("SherpaOnnxVerifier not initialized. Call init() first.")
 
         val rawSamples = pcmBytesToFloat(audioChunk.pcmData)
+        Log.d(TAG, "DIAG pcm bytes=${audioChunk.pcmData.size}, floats=${rawSamples.size}, rms=${kotlin.math.sqrt(rawSamples.fold(0.0) { a, v -> a + v * v } / rawSamples.size)}, max=${rawSamples.max()}, min=${rawSamples.min()}")
 
         // Trim leading/trailing silence using simple energy threshold
-        val floatSamples = trimSilence(rawSamples)
-        Log.d(TAG, "Trimmed ${rawSamples.size} -> ${floatSamples.size} samples")
+        val trimmed = trimSilence(rawSamples)
+        Log.d(TAG, "Trimmed ${rawSamples.size} -> ${trimmed.size} samples")
+
+        // RMS-normalize so embeddings are consistent regardless of mic distance/volume
+        val floatSamples = rmsNormalize(trimmed)
 
         // Extract mel fbank features: [numFrames, 80]
         val fbankFlat = MelFbankExtractor.extract(floatSamples)
@@ -67,6 +71,7 @@ class SherpaOnnxVerifier @Inject constructor(
         }
 
         Log.d(TAG, "Extracted $numFrames fbank frames from ${floatSamples.size} samples")
+        Log.d(TAG, "DIAG fbank: size=${fbankFlat.size}, min=${fbankFlat.min()}, max=${fbankFlat.max()}, mean=${fbankFlat.average()}, first5=${fbankFlat.take(5).map { "%.3f".format(it) }}")
 
         // Model expects [N, T, 80] where N=batch, T=time frames
         val inputTensor = OnnxTensor.createTensor(
@@ -92,6 +97,8 @@ class SherpaOnnxVerifier @Inject constructor(
         threshold: Float = DEFAULT_THRESHOLD,
     ): VerificationResult {
         val embedding = extractEmbedding(audioChunk)
+        Log.d(TAG, "DIAG profile[0..4]=${profile.embeddingVector.take(5).map { "%.4f".format(it) }}, norm=${kotlin.math.sqrt(profile.embeddingVector.fold(0f) { a, v -> a + v * v })}")
+        Log.d(TAG, "DIAG verify [0..4]=${embedding.take(5).map { "%.4f".format(it) }}, norm=${kotlin.math.sqrt(embedding.fold(0f) { a, v -> a + v * v })}")
         val similarity = cosineSimilarity(embedding, profile.embeddingVector)
         val result = VerificationResult(
             isMatch = similarity >= threshold,
@@ -120,7 +127,7 @@ class SherpaOnnxVerifier @Inject constructor(
      * Trim leading and trailing silence using RMS energy in 10ms windows.
      * Keeps only the region where energy exceeds the threshold.
      */
-    private fun trimSilence(samples: FloatArray, threshold: Float = 0.002f): FloatArray {
+    private fun trimSilence(samples: FloatArray, threshold: Float = 0.005f): FloatArray {
         val windowSize = AudioConfig.SAMPLE_RATE / 100  // 10ms = 160 samples
         if (samples.size < windowSize) return samples
 
@@ -160,6 +167,15 @@ class SherpaOnnxVerifier @Inject constructor(
         return if (end > start) samples.copyOfRange(start, end) else samples
     }
 
+    private fun rmsNormalize(samples: FloatArray, targetRms: Float = TARGET_RMS): FloatArray {
+        var sumSq = 0.0
+        for (s in samples) sumSq += s * s
+        val rms = sqrt(sumSq / samples.size).toFloat()
+        if (rms < 1e-6f) return samples
+        val scale = targetRms / rms
+        return FloatArray(samples.size) { (samples[it] * scale).coerceIn(-1f, 1f) }
+    }
+
     private fun pcmBytesToFloat(pcmData: ByteArray): FloatArray {
         val numSamples = pcmData.size / AudioConfig.BYTES_PER_SAMPLE
         val floatSamples = FloatArray(numSamples)
@@ -181,8 +197,9 @@ class SherpaOnnxVerifier @Inject constructor(
     companion object {
         private const val TAG = "SherpaOnnxVerifier"
         private const val MODEL_FILE = "ecapa_tdnn.onnx"
+        private const val TARGET_RMS = 0.1f
         const val EMBEDDING_DIM = 512
-        const val DEFAULT_THRESHOLD = 0.35f
+        const val DEFAULT_THRESHOLD = 0.55f
 
         fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
             require(a.size == b.size) { "Vectors must have same dimension" }

@@ -39,7 +39,7 @@ class SileroVadProcessor @Inject constructor(
 
     private val speechThreshold = 0.5f
     private val silenceDurationFrames = 30  // ~960ms silence before segment ends
-    private val minSegmentDurationMs = 1500  // drop segments shorter than 1.5s
+    private val minSegmentDurationMs = 3000  // drop segments shorter than 3s — embeddings degrade below this
 
     private val _lastVadResult = MutableStateFlow(VadResult(isSpeech = false, probability = 0f))
     val lastVadResult: StateFlow<VadResult> = _lastVadResult.asStateFlow()
@@ -170,7 +170,12 @@ class SileroVadProcessor @Inject constructor(
         }
 
         if (speechFrames.isNotEmpty()) {
-            emit(buildAudioChunk(speechFrames, segmentStartTime))
+            val chunk = buildAudioChunk(speechFrames, segmentStartTime)
+            if (chunk.durationMs >= minSegmentDurationMs) {
+                emit(chunk)
+            } else {
+                Log.d(TAG, "Dropping short trailing segment: ${chunk.durationMs}ms")
+            }
         }
     }
 
