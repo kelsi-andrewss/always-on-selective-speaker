@@ -12,7 +12,12 @@
           "package_name": "com.frontieraudio.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "742529576115-src0maj72jii19enjcvohic1u7frgiqp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA0rZ8cLyjUevRtiiJJnDrs_LAeB_8WDxU"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "742529576115-src0maj72jii19enjcvohic1u7frgiqp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

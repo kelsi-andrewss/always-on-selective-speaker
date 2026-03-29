@@ -1,6 +1,3 @@
-import java.io.FileInputStream
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -22,14 +19,6 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        val localProps = Properties()
-        val localPropsFile = rootProject.file("local.properties")
-        if (localPropsFile.exists()) {
-            FileInputStream(localPropsFile).use { localProps.load(it) }
-        }
-        buildConfigField("String", "ASSEMBLY_AI_KEY", "\"${localProps.getProperty("assembly.ai.key", "")}\"")
-        buildConfigField("String", "OPENAI_KEY", "\"${localProps.getProperty("openai.key", "")}\"")
     }
 
     buildTypes {
@@ -103,6 +92,16 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.functions)
+    implementation(libs.firebase.storage)
+
+    // Coroutines Play Services (await() for Task<T>)
+    implementation(libs.kotlinx.coroutines.play.services)
+
+    // Credential Manager
+    implementation(libs.credential.manager)
+    implementation(libs.credential.manager.play.services)
+    implementation(libs.google.id.identity)
 
     // Location
     implementation(libs.play.services.location)
@@ -110,11 +109,15 @@ dependencies {
     // ML / ONNX
     implementation(libs.onnxruntime.android)
 
+    // DSP
+    implementation(libs.jtransforms)
+
     // Testing
     testImplementation(libs.junit.jupiter.api)
     testRuntimeOnly(libs.junit.jupiter.engine)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.test.junit)
 }
 

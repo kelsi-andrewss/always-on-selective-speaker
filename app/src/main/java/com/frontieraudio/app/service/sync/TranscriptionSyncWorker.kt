@@ -1,6 +1,7 @@
 package com.frontieraudio.app.service.sync
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -14,11 +15,9 @@ import com.frontieraudio.app.data.local.AppDatabase
 import com.frontieraudio.app.data.local.entity.AudioChunkEntity
 import com.frontieraudio.app.data.local.entity.SyncStatus
 import com.frontieraudio.app.data.local.entity.TranscriptEntity
-import com.frontieraudio.app.data.remote.AssemblyAiClient
-import com.frontieraudio.app.data.remote.TranscriptResponse
-import com.frontieraudio.app.data.remote.WordResponse
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.gson.Gson
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 
 class TranscriptionSyncWorker(
     appContext: Context,
@@ -32,14 +31,7 @@ class TranscriptionSyncWorker(
             "frontier_audio.db",
         ).build().syncDao()
     }
-    private val client by lazy {
-        val apiKey = applicationContext.getString(
-            applicationContext.resources.getIdentifier(
-                "assembly_ai_api_key", "string", applicationContext.packageName
-            )
-        )
-        AssemblyAiClient(apiKey)
-    }
+    private val functions by lazy { FirebaseFunctions.getInstance() }
     private val gson = Gson()
 
     override suspend fun doWork(): Result {
@@ -76,26 +68,35 @@ class TranscriptionSyncWorker(
             bitsPerSample = 16,
         )
 
-        val uploadUrl = client.uploadAudio(wavData).getOrThrow()
-        Log.d(TAG, "Uploaded chunk ${chunk.chunkId} -> $uploadUrl")
+        val audioBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
+        Log.d(TAG, "Calling Cloud Function for chunk ${chunk.chunkId} (${wavData.size} bytes)")
 
-        val transcriptId = client.createTranscript(uploadUrl).getOrThrow()
-        Log.d(TAG, "Created transcript job $transcriptId for chunk ${chunk.chunkId}")
+        val result = functions
+            .getHttpsCallable("transcribe")
+            .call(hashMapOf("audioData" to audioBase64))
+            .await()
 
-        val response = pollForCompletion(transcriptId)
+        @Suppress("UNCHECKED_CAST")
+        val data = result.getData() as Map<String, Any>
 
-        if (response.status == "error") {
-            Log.e(TAG, "Transcript error for ${chunk.chunkId}: ${response.error}")
+        val status = data["status"] as? String
+        if (status == "error" || status != "completed") {
+            Log.e(TAG, "Transcript error for ${chunk.chunkId}: status=$status")
             dao.updateSyncStatus(chunk.chunkId, SyncStatus.FAILED)
             return
         }
 
-        val wordsJson = response.words?.let { gson.toJson(it.map(::toWordMap)) }
+        val transcriptId = data["transcriptId"] as? String ?: ""
+        val text = data["text"] as? String ?: ""
+
+        @Suppress("UNCHECKED_CAST")
+        val words = data["words"] as? List<Map<String, Any>>
+        val wordsJson = words?.let { gson.toJson(it) }
 
         val entity = TranscriptEntity(
-            transcriptId = response.id,
+            transcriptId = transcriptId,
             chunkId = chunk.chunkId,
-            text = response.text ?: "",
+            text = text,
             wordsJson = wordsJson,
             latitude = chunk.latitude,
             longitude = chunk.longitude,
@@ -104,43 +105,12 @@ class TranscriptionSyncWorker(
 
         dao.insertTranscript(entity)
         dao.updateSyncStatus(chunk.chunkId, SyncStatus.TRANSCRIBED)
-        Log.d(TAG, "Stored transcript ${response.id} for chunk ${chunk.chunkId}")
+        Log.d(TAG, "Stored transcript $transcriptId for chunk ${chunk.chunkId}")
     }
-
-    private suspend fun pollForCompletion(transcriptId: String): TranscriptResponse {
-        var backoffMs = POLL_INTERVAL_MS
-        var attempts = 0
-
-        while (attempts < MAX_POLL_ATTEMPTS) {
-            delay(backoffMs)
-            val response = client.getTranscript(transcriptId).getOrThrow()
-
-            when (response.status) {
-                "completed", "error" -> return response
-            }
-
-            attempts++
-            backoffMs = (backoffMs * BACKOFF_MULTIPLIER).toLong().coerceAtMost(MAX_POLL_INTERVAL_MS)
-            Log.d(TAG, "Polling $transcriptId — status: ${response.status}, attempt: $attempts")
-        }
-
-        throw IllegalStateException("Transcript $transcriptId did not complete after $MAX_POLL_ATTEMPTS polls")
-    }
-
-    private fun toWordMap(word: WordResponse): Map<String, Any> = mapOf(
-        "text" to word.text,
-        "start" to word.start,
-        "end" to word.end,
-        "confidence" to word.confidence,
-    )
 
     companion object {
         private const val TAG = "TranscriptionSync"
         private const val WORK_NAME = "transcription_sync"
-        private const val POLL_INTERVAL_MS = 5_000L
-        private const val MAX_POLL_INTERVAL_MS = 30_000L
-        private const val BACKOFF_MULTIPLIER = 1.5
-        private const val MAX_POLL_ATTEMPTS = 60
 
         fun enqueue(context: Context) {
             val constraints = Constraints.Builder()

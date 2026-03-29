@@ -17,6 +17,8 @@ import com.frontieraudio.app.service.speaker.EnrollmentManager
 import com.frontieraudio.app.service.speaker.SherpaOnnxVerifier
 import com.frontieraudio.app.ui.navigation.AppNavGraph
 import com.frontieraudio.app.ui.navigation.Routes
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.ktx.Firebase
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -36,12 +38,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         lifecycleScope.launch {
-            val enrolled = embeddingStore.isEnrolled()
-            val serviceRunning = RecordingForegroundService.isRunning.value
-            startDestination = when {
-                serviceRunning -> Routes.DASHBOARD
-                enrolled -> Routes.DASHBOARD
-                else -> Routes.ONBOARDING
+            if (Firebase.auth.currentUser == null) {
+                startDestination = Routes.SIGN_IN
+            } else {
+                val enrolled = embeddingStore.isEnrolled()
+                val serviceRunning = RecordingForegroundService.isRunning.value
+                startDestination = when {
+                    serviceRunning -> Routes.DASHBOARD
+                    enrolled -> {
+                        RecordingForegroundService.start(this@MainActivity)
+                        Routes.DASHBOARD
+                    }
+                    else -> Routes.ONBOARDING
+                }
             }
         }
 

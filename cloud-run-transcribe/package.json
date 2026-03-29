@@ -1,0 +1,11 @@
+{
+  "name": "transcribe-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "firebase-admin": "^12.7.0"
+  }
+}
