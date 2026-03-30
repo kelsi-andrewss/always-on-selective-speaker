@@ -50,7 +50,7 @@ class GpsTracker @Inject constructor(
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracy = location.accuracy,
-                        timestamp = location.elapsedRealtimeNanos,
+                        timestamp = location.time,
                     )
                     lastKnownLocation = point
                     trySend(point)

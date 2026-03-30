@@ -25,7 +25,7 @@ class LocationBatchManager @Inject constructor() {
         val index = binarySearchClosest(timestamp)
         val candidate = buffer[index]
         val delta = abs(candidate.timestamp - timestamp)
-        if (delta > TOLERANCE_NANOS) return null
+        if (delta > TOLERANCE_MS) return null
         return candidate
     }
 
@@ -56,6 +56,6 @@ class LocationBatchManager @Inject constructor() {
 
     companion object {
         private const val MAX_ENTRIES = 100
-        private const val TOLERANCE_NANOS = 30_000_000_000L // 30 seconds in nanoseconds
+        private const val TOLERANCE_MS = 30_000L // 30 seconds
     }
 }
