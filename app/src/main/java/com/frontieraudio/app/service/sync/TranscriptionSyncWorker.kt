@@ -29,7 +29,7 @@ class TranscriptionSyncWorker(
             applicationContext,
             AppDatabase::class.java,
             "frontier_audio.db",
-        ).build().syncDao()
+        ).addMigrations(AppDatabase.MIGRATION_1_2).build().syncDao()
     }
     private val functions by lazy { FirebaseFunctions.getInstance() }
     private val gson = Gson()

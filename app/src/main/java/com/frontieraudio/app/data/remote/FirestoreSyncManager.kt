@@ -23,7 +23,7 @@ class FirestoreSyncManager(
         for (transcript in transcripts) {
             try {
                 val chunk = syncDao.getChunkById(transcript.chunkId)
-                syncOne(transcript, chunk?.sessionId, chunk?.locationAccuracy)
+                syncOne(transcript, chunk?.sessionId, chunk?.locationAccuracy, chunk?.speakerConfidence)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to sync transcript ${transcript.transcriptId}", e)
             }
@@ -34,6 +34,7 @@ class FirestoreSyncManager(
         transcript: TranscriptEntity,
         sessionId: String?,
         accuracy: Float?,
+        speakerConfidence: Float?,
     ) {
         val doc = hashMapOf<String, Any?>(
             "text" to transcript.text,
@@ -42,6 +43,7 @@ class FirestoreSyncManager(
             "latitude" to transcript.latitude,
             "longitude" to transcript.longitude,
             "accuracy" to accuracy?.toDouble(),
+            "speakerConfidence" to speakerConfidence?.toDouble(),
             "timestamp" to transcript.createdAt,
             "sessionId" to (sessionId ?: "unknown"),
         )

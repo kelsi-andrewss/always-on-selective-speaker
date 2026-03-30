@@ -638,6 +638,11 @@
             sessionTranscripts.forEach(function (t) {
                 var displayText = t.correctedText || t.text || "(empty)";
                 var cardTime = t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : "";
+                var confidence = "";
+                if (t.speakerConfidence != null) {
+                    var pct = Math.round(t.speakerConfidence * 100);
+                    confidence = '<span class="speaker-confidence"><i data-lucide="shield-check"></i>' + pct + '% match</span>';
+                }
                 var gps = "";
                 if (t.latitude != null && t.longitude != null) {
                     var mapsUrl = "https://www.google.com/maps?q=" + t.latitude + "," + t.longitude;
@@ -647,6 +652,7 @@
                 html += '<div class="transcript-card">' +
                     '<div class="transcript-meta">' +
                     '<span class="time-stamp"><i data-lucide="clock"></i>' + cardTime + '</span>' +
+                    confidence +
                     (gps ? gps : "") +
                     '</div>' +
                     '<div class="transcript-text">' + escapeHtml(displayText) + '</div>' +

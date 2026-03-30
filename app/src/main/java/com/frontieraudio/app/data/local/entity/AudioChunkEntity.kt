@@ -53,6 +53,9 @@ data class AudioChunkEntity(
 
     @ColumnInfo(name = "location_accuracy")
     val locationAccuracy: Float? = null,
+
+    @ColumnInfo(name = "speaker_confidence")
+    val speakerConfidence: Float? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -67,7 +70,8 @@ data class AudioChunkEntity(
             syncStatus == other.syncStatus &&
             latitude == other.latitude &&
             longitude == other.longitude &&
-            locationAccuracy == other.locationAccuracy
+            locationAccuracy == other.locationAccuracy &&
+            speakerConfidence == other.speakerConfidence
     }
 
     override fun hashCode(): Int {
@@ -82,6 +86,7 @@ data class AudioChunkEntity(
         result = 31 * result + (latitude?.hashCode() ?: 0)
         result = 31 * result + (longitude?.hashCode() ?: 0)
         result = 31 * result + (locationAccuracy?.hashCode() ?: 0)
+        result = 31 * result + (speakerConfidence?.hashCode() ?: 0)
         return result
     }
 }

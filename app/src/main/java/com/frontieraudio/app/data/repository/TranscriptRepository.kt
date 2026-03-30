@@ -19,6 +19,7 @@ data class FirestoreTranscript(
     val status: String = "pending",
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val speakerConfidence: Double? = null,
     val createdAt: Long = 0L,
 )
 
@@ -59,6 +60,7 @@ class TranscriptRepository @Inject constructor() {
                         status = status,
                         latitude = doc.getDouble("latitude"),
                         longitude = doc.getDouble("longitude"),
+                        speakerConfidence = doc.getDouble("speakerConfidence"),
                         createdAt = timestamp?.toDate()?.time ?: 0L,
                     )
                 }

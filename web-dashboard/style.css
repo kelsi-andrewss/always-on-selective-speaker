@@ -318,6 +318,14 @@ nav {
     word-break: break-word;
 }
 
+.speaker-confidence {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #2dd4bf;
+    font-weight: 500;
+}
+
 .gps-link {
     display: inline-flex;
     align-items: center;

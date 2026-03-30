@@ -318,6 +318,14 @@ private fun TranscriptCard(transcript: FirestoreTranscript) {
                     )
                 }
 
+                if (transcript.speakerConfidence != null) {
+                    Text(
+                        text = "Speaker Confidence: ${(transcript.speakerConfidence * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
                 if (transcript.latitude != null && transcript.longitude != null) {
                     Text(
                         text = "%.4f, %.4f".format(transcript.latitude, transcript.longitude),

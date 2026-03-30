@@ -341,7 +341,7 @@ class RecordingForegroundService : Service() {
                 if (result.isMatch) {
                     Log.d(TAG, "Speaker verified (similarity=${result.similarity})")
                     _pipelineState.value = "YOU — verified ($simPct%)"
-                    chunk.copy(isSpeakerVerified = true)
+                    chunk.copy(isSpeakerVerified = true, speakerConfidence = result.similarity)
                 } else {
                     Log.d(TAG, "Speaker not matched (similarity=${result.similarity})")
                     _pipelineState.value = "Other speaker ($simPct% < ${(threshold * 100).toInt()}%)"
@@ -416,6 +416,9 @@ class RecordingForegroundService : Service() {
         }
         val totalDurationMs = chunks.sumOf { it.durationMs }
         val sampleRate = chunks.first().sampleRate
+        val avgConfidence = chunks.mapNotNull { it.speakerConfidence }.let { scores ->
+            if (scores.isNotEmpty()) scores.average().toFloat() else null
+        }
 
         val chunkId = UUID.randomUUID().toString()
 
@@ -431,6 +434,7 @@ class RecordingForegroundService : Service() {
             latitude = location?.latitude,
             longitude = location?.longitude,
             locationAccuracy = location?.accuracy,
+            speakerConfidence = avgConfidence,
         )
 
         serviceScope.launch {
@@ -462,6 +466,7 @@ class RecordingForegroundService : Service() {
                         "status" to "pending",
                         "latitude" to entity.latitude,
                         "longitude" to entity.longitude,
+                        "speakerConfidence" to avgConfidence?.toDouble(),
                         "createdAt" to com.google.firebase.Timestamp.now(),
                     )
                 ).await()

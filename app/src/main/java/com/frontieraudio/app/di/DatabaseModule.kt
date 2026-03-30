@@ -23,7 +23,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "frontier_audio.db",
-        ).build()
+        ).addMigrations(AppDatabase.MIGRATION_1_2).build()
 
     @Provides
     fun provideRecordingDao(database: AppDatabase): RecordingDao =

@@ -6,6 +6,7 @@ data class AudioChunk(
     val durationMs: Int,
     val sampleRate: Int,
     val isSpeakerVerified: Boolean,
+    val speakerConfidence: Float? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -14,7 +15,8 @@ data class AudioChunk(
             startTimestamp == other.startTimestamp &&
             durationMs == other.durationMs &&
             sampleRate == other.sampleRate &&
-            isSpeakerVerified == other.isSpeakerVerified
+            isSpeakerVerified == other.isSpeakerVerified &&
+            speakerConfidence == other.speakerConfidence
     }
 
     override fun hashCode(): Int {
@@ -23,6 +25,7 @@ data class AudioChunk(
         result = 31 * result + durationMs
         result = 31 * result + sampleRate
         result = 31 * result + isSpeakerVerified.hashCode()
+        result = 31 * result + (speakerConfidence?.hashCode() ?: 0)
         return result
     }
 }
